@@ -26,13 +26,13 @@ Only `public/` is uploaded, which is what keeps this README, the git history and
 
 | Role | Device | Notes |
 |---|---|---|
-| Power supply | ISDT MP305 (developed against MP305B) | 0–30 V, 0–5.1 A, 150 W linear supply with an internal battery and BLE |
-| RGB controller | Triones-firmware BLE LED controller, e.g. SUPERNIGHT RGBW/RGB (Amazon B08SJ513KR) | 12–24 V, rated 10 A on RGB and 12 A on W; used in RGB mode |
+| Power supply | ISDT MP305 (developed against MP305B) | 0-30 V, 0-5.1 A, 150 W linear supply with an internal battery and BLE |
+| RGB controller | Triones-firmware BLE LED controller, e.g. SUPERNIGHT RGBW/RGB (Amazon B08SJ513KR) | 12-24 V, rated 10 A on RGB and 12 A on W; used in RGB mode |
 | White controller (optional) | A second identical Triones controller | Used in white mode only |
 
 ### Why two controllers
 
-Triones firmware treats RGB and white as **mutually exclusive modes**. The mode byte in the color command is `F0` for RGB or `0F` for white, and most firmware ignores `FF` (mix). One controller therefore can't run RGB and W at the same time. The tool gets around this by using two controllers as one RGBW fixture:
+Triones firmware treats RGB and white as **mutually exclusive modes**. The mode byte in the color command is `F0` for RGB or `0F` for white; the `FF` mix value is not supported. One controller therefore can't run RGB and W at the same time. The tool gets around this by using two controllers as one RGBW fixture:
 
 - Power both controllers from the same supply so they share a ground (the outputs switch the low side).
 - Strip V+ connects to controller A's V+ output.
@@ -43,6 +43,9 @@ Triones firmware treats RGB and white as **mutually exclusive modes**. The mode 
 Known side effects: a few tens of milliseconds of skew between the two BLE writes, unsynchronized PWM clocks (can band on camera), and independent power-on states.
 
 ## Features
+
+### Header
+- Connection chips for the supply and the two controllers. On screens narrower than 700 px a connected chip collapses to its dot and a short name (PSU, RGB, White) with an × button that asks before disconnecting; a chip that still needs its Connect button stays full size.
 
 ### Power supply panel
 - Live readout of volts, amps and watts from 0xC3 state frames, plus the voltage setpoint and the regulation state (CV or CC) taken from the frame's `outState`.
@@ -58,7 +61,7 @@ Known side effects: a few tens of milliseconds of skew between the two BLE write
 - R, G, B and W faders plus a master fader, a color picker (sets R/G/B), and an output color preview.
 - An **in-use checkbox** under each color fader. An unchecked channel always outputs zero, is skipped by patterns, is excluded from All full, and its Solo button is disabled. This is for testing RGB-only tape.
 - Solo buttons (one channel at full, for reading per-channel current on the PSU), All full, and Blackout.
-- Test patterns with an adjustable step time (0.1–3 s, default 1.4 s):
+- Test patterns with an adjustable step time (0.1-3 s, default 1.4 s):
   - **Rainbow**: crossfades between the enabled channels in order. The incoming channel ramps to full while the outgoing one holds, then the outgoing one fades out, so intermediate mixes (yellow, cyan, etc.) are visible at full brightness.
   - **Chase**: hard steps through the enabled channels.
   - **Fading chase**: each enabled channel fades up and back down in turn (gamma 2.2).
@@ -66,7 +69,7 @@ Known side effects: a few tens of milliseconds of skew between the two BLE write
 - **Characterize LED tape**: asks for the tape length (metres or feet), then drives the light through a baseline (all off), each in-use channel at full, and all in-use channels together, averaging six supply readings per step. It reports watts and amps per metre and per foot for every combination, net of the baseline, with the all-channels figure as the headline, and a Copy button that puts a tab-separated block on the clipboard. Any step where the supply was current-limiting is marked as such, since that reading is the limit rather than the tape's draw. It only drives the light: the supply must already be connected with the output on, and it refuses to start otherwise. Master is forced to full for the run, and the previous light state and pattern are restored afterwards, including on cancel or error.
 - Controller mapping:
   - Both connected: RGB goes to A (`F0`) and W goes to B (`0F`), for full RGBW mixing.
-  - Only A connected: white-only uses `0F`, RGB-only uses `F0`, and both at once tries `FF`, which most firmware ignores.
+  - Only A connected: RGB (`F0`) whenever any of R, G or B is up, otherwise white (`0F`). W is dropped while RGB is on, and both the mode line and the output swatch show that.
   - Only B connected: white only.
 
 ### Log
@@ -76,7 +79,7 @@ Shows connection events, the first two raw PSU state frames, control results, an
 
 Everything lives in the `<script>` block of `public/led-first-aid.html`, in this order:
 
-1. **Helpers**: `$`, `hex`, `sleep`, `log`, `setChip`, `U` (builds a 128-bit UUID string from a 16-bit alias), `pickDevice` (the only place `requestDevice` is called; sets `pickerOpen` for the duration), and `gattWrite` (feature-detecting write used by every GATT write).
+1. **Helpers**: `$`, `hex`, `sleep`, `log`, `setChip` (with `compactChips` and `confirmDisconnect` for the phone layout), `U` (builds a 128-bit UUID string from a 16-bit alias), `pickDevice` (the only place `requestDevice` is called; sets `pickerOpen` for the duration), and `gattWrite` (feature-detecting write used by every GATT write).
 2. **`class Triones`**: connect, disconnect, and a latest-wins write queue. While a write is in flight, only the newest frame is kept, and duplicates of the last-sent frame are skipped. Two instances exist: `ctlA` (RGB) and `ctlB` (white).
 3. **Light state**:
    - `lv` holds the manual levels plus master; `out` holds the levels currently being output, before master; `used` holds the in-use flags; `eff(k)` returns the effective level after the in-use flag.
@@ -108,7 +111,7 @@ The styling is a dark lighting-console look (Barlow / Barlow Semi Condensed), wi
 |---|---|
 | Power on | `CC 23 33` |
 | Power off | `CC 24 33` |
-| Color | `56 RR GG BB WW MM AA`, where `MM` = `F0` RGB, `0F` white, `FF` mix (usually ignored) |
+| Color | `56 RR GG BB WW MM AA`, where `MM` = `F0` RGB or `0F` white (`FF` mix is not supported) |
 | Status query | `EF 01 77` → `66 … 99` (12 bytes: device type, power `23`/`24`, mode, …, R, G, B, W, firmware version) |
 
 This controller family is **verified working** with this tool.
@@ -168,7 +171,7 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 ## Status and known issues
 
 - **The MP305 remote-control handshake is not yet confirmed in this tool.** The two-step `remoteCon=2`/`remoteCon=1` flow and the on-screen prompts follow the upstream notes. Earlier builds got `31 C9 01` (rejected) because they skipped the request. If control still fails, check the log for "Remote control granted".
-- With a single Triones controller, W combined with RGB depends on `FF` support, which most units lack.
+- With a single Triones controller, W can't be shown together with RGB; W is dropped while any RGB channel is up.
 - Reconnecting always goes through the browser device picker; `navigator.bluetooth.getDevices()` isn't used.
 - No persistence: the current limit, in-use flags, pattern speed and tape length reset on reload.
 - Bluefy (iOS): the Triones picker used to fail with Bluefy's own error "Request payload could not be parsed" because the code passed 16-bit UUID aliases; every UUID is now a 128-bit string. The PSU poll still pauses while any picker is open (harmless), and the log reports a picker that hasn't returned after 10 s as well as the name and message of any rejection.
@@ -180,7 +183,7 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 - BLE writes: always go through the per-device queue (`Triones.send`/`force`, `psuWrite`), both of which write via `gattWrite` so characteristics that only implement the older `writeValue()` (Bluefy) still work. Parallel GATT operations on one device throw "GATT operation already in progress".
 - Device pickers: always open them through `pickDevice()`, and never `await` anything before `requestDevice` in a click handler. WebKit (Bluefy) drops the tap's user activation across an `await`, and the picker then silently doesn't open.
 - Always pass Bluetooth UUIDs as full 128-bit lowercase strings (use `U("ffd5")`, never `0xffd5`). Bluefy rejects numeric aliases with "Request payload could not be parsed".
-- The UI must stay usable at narrow widths (layout collapses below 900 px and 700 px) and keep visible keyboard focus.
+- The UI must stay usable at narrow widths (layout collapses below 900 px and 700 px, and tightens for phones below 480 px; the page must never scroll horizontally) and keep visible keyboard focus.
 - Safety conventions: the current limit defaults to the supply's maximum and only changes when the operator sets it; voltage increases while live require confirmation; Characterize never switches the output on or changes the voltage; and a single-controller setup must never silently drop a requested channel without logging or showing it in the mode line.
 
 ## Roadmap

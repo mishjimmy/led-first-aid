@@ -30,14 +30,39 @@ h1{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:22px
 .chip.on .lbl{color:var(--text)}
 .spacer{flex:1}
 label.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:14px;cursor:pointer}
+label.chk .short{display:none}
 button{font:inherit;font-weight:500;font-size:14px;color:var(--text);background:#34383e;border:1px solid #4a4f57;border-radius:4px;padding:7px 12px;cursor:pointer}
 button:hover{background:#3d4249}
 button:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 button:disabled{opacity:.4;cursor:default}
 .chip button{padding:5px 10px}
+.chip .short{display:none;font-size:14px;font-weight:500;color:var(--text)}
+/* On a phone a connected chip collapses to its dot and short name; the button becomes a small x. */
+@media (max-width:700px){
+  header{gap:8px 10px}
+  .brand{margin-right:0}
+  .chip.on{padding:4px 4px 4px 9px;gap:6px}
+  .chip.on .lbl{display:none}
+  .chip.on .short{display:inline}
+  .chip.on button{padding:3px 6px;min-width:24px;font-size:15px;line-height:1.2}
+  label.chk .long{display:none}
+  label.chk .short{display:inline}
+}
+/* Phone portrait: the meters, the fader bank and the heading all have to fit in ~350 px. */
+@media (max-width:480px){
+  .wrap{padding:12px}
+  h1{font-size:18px}
+  .brand .cross{width:20px;height:20px}
+  .meters{gap:6px}
+  .meter{padding:8px 6px 6px}
+  .meter .val{font-size:28px}
+  .bank{gap:6px}
+  .fader{width:54px}
+  .fader.master{margin-left:4px}
+}
 
 .grid{display:grid;grid-template-columns:360px 1fr;gap:16px;margin-top:16px}
-@media (max-width:900px){.grid{grid-template-columns:1fr}}
+@media (max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
 .card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:16px}
 .card h2{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:17px;margin:0 0 12px}
 .sub{font-size:13px;color:var(--dim);line-height:1.4;margin:0}
@@ -81,7 +106,7 @@ button:disabled{opacity:.4;cursor:default}
 
 /* Light */
 .light{display:grid;grid-template-columns:auto 1fr;gap:18px}
-@media (max-width:700px){.light{grid-template-columns:1fr}}
+@media (max-width:700px){.light{grid-template-columns:minmax(0,1fr)}}
 .bank{display:flex;gap:8px}
 .fader{display:flex;flex-direction:column;align-items:center;gap:8px;width:64px;padding:10px 0 12px;background:var(--well);border-radius:4px}
 .fader .pct{font-family:"Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;color:var(--amber)}
@@ -144,11 +169,11 @@ table.res td.limited{color:var(--warn)}
       <svg class="cross" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 2h5.2a1.4 1.4 0 0 1 1.4 1.4V8h4.6A1.4 1.4 0 0 1 22 9.4v5.2a1.4 1.4 0 0 1-1.4 1.4H16v4.6a1.4 1.4 0 0 1-1.4 1.4H9.4A1.4 1.4 0 0 1 8 20.6V16H3.4A1.4 1.4 0 0 1 2 14.6V9.4A1.4 1.4 0 0 1 3.4 8H8V3.4A1.4 1.4 0 0 1 9.4 2z"/></svg>
       <h1>LED First Aid</h1>
     </div>
-    <div class="chip" id="chipPsu"><span class="dot"></span><span class="lbl">Power supply</span><button id="btnPsu">Connect</button></div>
-    <div class="chip" id="chipA"><span class="dot"></span><span class="lbl">RGB controller</span><button id="btnA">Connect</button></div>
-    <div class="chip" id="chipB"><span class="dot"></span><span class="lbl">White controller</span><button id="btnB">Connect</button></div>
+    <div class="chip" id="chipPsu"><span class="dot"></span><span class="lbl">Power supply</span><span class="short">PSU</span><button id="btnPsu">Connect</button></div>
+    <div class="chip" id="chipA"><span class="dot"></span><span class="lbl">RGB controller</span><span class="short">RGB</span><button id="btnA">Connect</button></div>
+    <div class="chip" id="chipB"><span class="dot"></span><span class="lbl">White controller</span><span class="short">White</span><button id="btnB">Connect</button></div>
     <div class="spacer"></div>
-    <label class="chk"><input type="checkbox" id="showAll"> Show all Bluetooth devices</label>
+    <label class="chk"><input type="checkbox" id="showAll"> <span class="long">Show all Bluetooth devices</span><span class="short">Show all</span></label>
   </header>
 
   <div class="banner" id="noBt">Web Bluetooth isn't available here. Open this file in Chrome or Edge on Windows 10 or later, with Bluetooth turned on.</div>
@@ -290,8 +315,27 @@ function log(msg, cls = "") {
 }
 function setChip(id, on, label) {
   $("chip" + id).classList.toggle("on", on);
-  $("btn" + id).textContent = on ? "Disconnect" : "Connect";
   if (label) $("chip" + id).querySelector(".lbl").title = label;
+  compactChips();
+}
+// Under 700 px a connected chip shows only its dot and short name, and its button becomes a
+// small x. It stays a real button so keyboard focus and the accessible name survive.
+const narrow = matchMedia("(max-width:700px)");
+const CHIP_WHAT = { Psu: "power supply", A: "RGB controller", B: "white controller" };
+function compactChips() {
+  for (const id of ["Psu", "A", "B"]) {
+    const on = $("chip" + id).classList.contains("on"), btn = $("btn" + id);
+    const compact = on && narrow.matches;
+    btn.textContent = compact ? "\u00d7" : on ? "Disconnect" : "Connect";
+    if (compact) btn.setAttribute("aria-label", "Disconnect " + CHIP_WHAT[id]);
+    else btn.removeAttribute("aria-label");
+  }
+}
+if (narrow.addEventListener) narrow.addEventListener("change", compactChips); else narrow.addListener(compactChips);
+// A compact x sits where thumbs land, and dropping the supply means its bind prompt again.
+function confirmDisconnect(id) {
+  const compact = narrow.matches && $("chip" + id).classList.contains("on");
+  return !compact || confirm(`Disconnect the ${CHIP_WHAT[id]}?`);
 }
 // Bluetooth UUIDs are always the full 128-bit lowercase string. Bluefy (iOS) rejects the
 // 16-bit numeric aliases (0xffd5 and friends) with "Request payload could not be parsed".
@@ -379,6 +423,9 @@ let pattern = "off", patTimer = null;
 let phase = 0, lastT = 0;
 const used = { r: true, g: true, b: true, w: true };   // channels present on the tape under test
 const eff = k => used[k] ? out[k] : 0;
+// One controller runs RGB (F0) or white (0F), never both. With only A connected, W has to be
+// dropped while any RGB channel is up; render() and pushOutput() both consult this.
+const wDropped = () => ctlA.connected && !ctlB.connected && eff("w") > 0 && eff("r") + eff("g") + eff("b") > 0;
 
 const chans = [["r", "R", "var(--r)"], ["g", "G", "var(--g)"], ["b", "B", "var(--b)"], ["w", "W", "var(--w)"], ["m", "Master", "var(--m)"]];
 for (const [k, name, c] of chans) {
@@ -410,7 +457,7 @@ function render() {
     $("p_" + k).textContent = Math.round(out[k] / 2.55);
   }
   $("s_m").value = lv.m; $("p_m").textContent = Math.round(lv.m / 2.55);
-  const m = lv.m / 255, W = eff("w") * m / 255;
+  const m = lv.m / 255, W = (wDropped() ? 0 : eff("w")) * m / 255;
   const mix = x => Math.round(Math.min(255, x * m + (255 - x * m) * W));
   $("swatch").style.background = `rgb(${mix(eff("r"))},${mix(eff("g"))},${mix(eff("b"))})`;
 }
@@ -450,10 +497,11 @@ function pushOutput(forceAll) {
     send(ctlA, rgbCmd); send(ctlB, wCmd);
     mode = "<b>Dual controller</b>: full RGBW mixing";
   } else if (ctlA.connected) {
-    if (w === 0) send(ctlA, rgbCmd);
-    else if (r + g + b === 0) send(ctlA, wCmd);
-    else send(ctlA, [0x56, r, g, b, w, 0xff, 0xaa]);
-    mode = "<b>Single controller</b>: RGB and W can't mix; W with RGB tries the FF mix byte";
+    const rgbUp = eff("r") + eff("g") + eff("b") > 0;
+    send(ctlA, rgbUp || w === 0 ? rgbCmd : wCmd);
+    mode = wDropped()
+      ? "<b>Single controller</b>: W is ignored while RGB is on (needs the white controller)"
+      : "<b>Single controller</b>: RGB or white, not both";
   } else if (ctlB.connected) {
     send(ctlB, wCmd);
     mode = "<b>White controller only</b>";
@@ -641,7 +689,7 @@ function renderPsu() {
   if (!on) psu.limitPending = false;          // cycling the output engages the new limit
   const cc = isCC(s);
   const mode = $("setMode");
-  mode.textContent = !s ? "--" : !on ? "Output off" : cc ? "CC — current limiting" : "CV";
+  mode.textContent = !s ? "--" : !on ? "Output off" : cc ? "CC - current limiting" : "CV";
   mode.style.color = cc ? "var(--warn)" : "";
   const v = s ? s.setV || psu.targetV : psu.targetV;
   const avail = v * (s ? s.setI || effectiveLimit(v) : effectiveLimit(v));
@@ -667,8 +715,8 @@ function renderLimit() {
   const want = effectiveLimit(s.setV || psu.targetV);
   const drift = Math.abs(s.setI - want) > 0.02;
   let txt = `Supply reports ${s.setI.toFixed(3)} A`;
-  if (drift) txt += ` — asked for ${want.toFixed(2)} A`;
-  else if (want < psu.limitI - 1e-6) txt += ` — capped by the ${MAX_P} W envelope`;
+  if (drift) txt += ` - asked for ${want.toFixed(2)} A`;
+  else if (want < psu.limitI - 1e-6) txt += ` - capped by the ${MAX_P} W envelope`;
   if (psu.limitPending) txt += ". Cycle the output for the lower limit to engage.";
   note.textContent = txt;
   note.classList.toggle("bad", drift || psu.limitPending);
@@ -956,7 +1004,7 @@ function showResults(rows, metres, feet, lenVal, unit) {
     const cls = r.cc && !r.base ? ' class="limited"' : "";
     html += `<tr${r.all ? ' class="total"' : ""}><td>${r.name}</td>` +
       `<td${cls}>${fmt(nn.i, 3)}</td><td${cls}>${fmt(nn.w, 1)}</td>` +
-      (r.base ? "<td>\u2014</td><td>\u2014</td><td>\u2014</td><td>\u2014</td>"
+      (r.base ? "<td>-</td><td>-</td><td>-</td><td>-</td>"
         : `<td${cls}>${fmt(nn.w / metres, 2)}</td><td${cls}>${fmt(nn.w / feet, 2)}</td><td${cls}>${fmt(nn.i / metres, 3)}</td><td${cls}>${fmt(nn.i / feet, 3)}</td>`) +
       "</tr>";
   }
@@ -968,10 +1016,10 @@ function showResults(rows, metres, feet, lenVal, unit) {
 
   // Plain text, tab-separated, so it pastes cleanly into notes or a spreadsheet.
   const L = [
-    "LED First Aid \u2014 tape characterization",
+    "LED First Aid - tape characterization",
     new Date().toLocaleString(),
     `Length: ${lenVal} ${unit} (${fmt(metres, 2)} m / ${fmt(feet, 2)} ft)   Supply: ${fmt(v, 2)} V, limit ${fmt(psu.limitI, 2)} A`,
-    `Baseline (controllers idle): ${fmt(base.i, 3)} A, ${fmt(base.w, 1)} W \u2014 subtracted from every row below`,
+    `Baseline (controllers idle): ${fmt(base.i, 3)} A, ${fmt(base.w, 1)} W - subtracted from every row below`,
     "",
     ["Combo", "A", "W", "W/m", "W/ft", "A/m", "A/ft", "Note"].join("\t"),
   ];
@@ -1011,15 +1059,15 @@ async function guard(fn, what) {
   }
 }
 $("btnPsu").addEventListener("click", () => psu.dev && psu.dev.gatt.connected
-  ? psu.dev.gatt.disconnect() : guard(() => psuConnect($("showAll").checked), "power supply"));
-$("btnA").addEventListener("click", () => ctlA.connected ? ctlA.disconnect() : guard(() => ctlA.connect($("showAll").checked), "RGB controller"));
-$("btnB").addEventListener("click", () => ctlB.connected ? ctlB.disconnect() : guard(() => ctlB.connect($("showAll").checked), "white controller"));
+  ? confirmDisconnect("Psu") && psu.dev.gatt.disconnect() : guard(() => psuConnect($("showAll").checked), "power supply"));
+$("btnA").addEventListener("click", () => ctlA.connected ? confirmDisconnect("A") && ctlA.disconnect() : guard(() => ctlA.connect($("showAll").checked), "RGB controller"));
+$("btnB").addEventListener("click", () => ctlB.connected ? confirmDisconnect("B") && ctlB.disconnect() : guard(() => ctlB.connect($("showAll").checked), "white controller"));
 
 if (!navigator.bluetooth) {
   $("noBt").style.display = "block";
   ["btnPsu", "btnA", "btnB"].forEach(id => $(id).disabled = true);
 }
-render(); renderPsu(); pushOutput(); showStepTime(); drawTrends();
+render(); renderPsu(); pushOutput(); showStepTime(); drawTrends(); compactChips();
 log("Ready. Close the phone apps first; each device accepts one connection at a time.");
 log("PSU protocol is community reverse-engineered and unverified. Watch the first state frames below.");
 </script>
