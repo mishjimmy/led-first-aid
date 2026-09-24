@@ -1,12 +1,12 @@
-# LED test bench
+# LED First Aid
 
 A browser-based bench tool for testing LED tape in the field. It connects over Bluetooth to a portable power supply and to one or two cheap BLE LED controllers. From one page you can set the supply voltage, read live power draw, and drive the tape through colors and test patterns.
 
-The whole app is a single self-contained HTML file (`led-test-bench.html`): vanilla JS and CSS with no build step and no dependencies. The only external request is Google Fonts, which has system-font fallbacks.
+The whole app is a single self-contained HTML file (`led-first-aid.html`): vanilla JS and CSS with no build step and no dependencies. The only external request is Google Fonts, which has system-font fallbacks.
 
 ## Running it
 
-Open `led-test-bench.html` directly in **Chrome or Edge** (desktop, Windows 10+), or serve it from `localhost`. Two conditions apply:
+Open `led-first-aid.html` directly in **Chrome or Edge** (desktop, Windows 10+), or serve it from `localhost`. Two conditions apply:
 
 - It needs **Web Bluetooth**, which requires a secure context (`file://` or `localhost` both qualify) and a Chromium browser. Firefox and Safari don't support it. On iOS, only the Bluefy browser works.
 - It **must run as a top-level page**. Web Bluetooth is usually blocked inside iframes and embedded viewers, so hosted previews won't work.
@@ -17,7 +17,7 @@ Close the phone apps (Happy Lighting, PolyLink) before connecting. Each device a
 
 | Role | Device | Notes |
 |---|---|---|
-| Power supply | ISDT MP305 (developed against MP305B) | 0–30 V, 0–5 A, 150 W linear supply with an internal battery and BLE |
+| Power supply | ISDT MP305 (developed against MP305B) | 0–30 V, 0–5.1 A, 150 W linear supply with an internal battery and BLE |
 | RGB controller | Triones-firmware BLE LED controller, e.g. SUPERNIGHT RGBW/RGB (Amazon B08SJ513KR) | 12–24 V, rated 10 A on RGB and 12 A on W; used in RGB mode |
 | White controller (optional) | A second identical Triones controller | Used in white mode only |
 
@@ -36,9 +36,11 @@ Known side effects: a few tens of milliseconds of skew between the two BLE write
 ## Features
 
 ### Power supply panel
-- Live readout of volts, amps and watts from 0xC3 state frames, plus the voltage setpoint and current limit.
-- 5 V, 12 V and 24 V presets. The current limit is always set to the maximum available, `min(5 A, 150 W / V)`.
-- An available-power figure (`V × I_limit`), a load bar (turns red above 90%), and headroom in watts. The status line shows when the supply is current-limiting.
+- Live readout of volts, amps and watts from 0xC3 state frames, plus the voltage setpoint and the regulation state (CV or CC) taken from the frame's `outState`.
+- **Trend charts**: two sparklines under the meters, one for amps and one for watts, covering the last two minutes (240 samples at the 500 ms poll). Each is its own chart with its own scale; they share a time axis, so scrubbing one crosshairs both and shows the value at that moment. The amps chart draws a dashed line at the current limit once the draw gets within reach of it, and the trace turns red across any span where the supply was in CC. The window clears on disconnect.
+- **Current limit**: an operator setpoint, default 5.1 A (the supply's maximum), with quick buttons for 1 A, 3 A and max. The value sent is `min(limit, 150 W / V)`. The supply's own readback is shown beneath the field and flagged if it differs from what was asked. Lowering the limit while the output is live shows a note to cycle the output, because the firmware doesn't engage the lower limit until then.
+- 5 V, 12 V and 24 V presets.
+- An available-power figure (`V × I_limit`), a load bar (turns red above 90%), and headroom in watts.
 - Output on/off toggle.
 - Safety check: raising the voltage while the output is live asks for confirmation.
 - A "Release to front panel" button sends `remoteCon=0`.
@@ -47,11 +49,12 @@ Known side effects: a few tens of milliseconds of skew between the two BLE write
 - R, G, B and W faders plus a master fader, a color picker (sets R/G/B), and an output color preview.
 - An **in-use checkbox** under each color fader. An unchecked channel always outputs zero, is skipped by patterns, is excluded from All full, and its Solo button is disabled. This is for testing RGB-only tape.
 - Solo buttons (one channel at full, for reading per-channel current on the PSU), All full, and Blackout.
-- Test patterns with an adjustable step time (0.1–3 s):
+- Test patterns with an adjustable step time (0.1–3 s, default 1.4 s):
   - **Rainbow**: crossfades between the enabled channels in order. The incoming channel ramps to full while the outgoing one holds, then the outgoing one fades out, so intermediate mixes (yellow, cyan, etc.) are visible at full brightness.
   - **Chase**: hard steps through the enabled channels.
   - **Fading chase**: each enabled channel fades up and back down in turn (gamma 2.2).
 - Master applies to patterns. Touching any color fader or the picker stops the running pattern.
+- **Characterize LED tape**: asks for the tape length (metres or feet), then drives the light through a baseline (all off), each in-use channel at full, and all in-use channels together, averaging six supply readings per step. It reports watts and amps per metre and per foot for every combination, net of the baseline, with the all-channels figure as the headline, and a Copy button that puts a tab-separated block on the clipboard. Any step where the supply was current-limiting is marked as such, since that reading is the limit rather than the tape's draw. It only drives the light: the supply must already be connected with the output on, and it refuses to start otherwise. Master is forced to full for the run, and the previous light state and pattern are restored afterwards, including on cancel or error.
 - Controller mapping:
   - Both connected: RGB goes to A (`F0`) and W goes to B (`0F`), for full RGBW mixing.
   - Only A connected: white-only uses `0F`, RGB-only uses `F0`, and both at once tries `FF`, which most firmware ignores.
@@ -74,9 +77,13 @@ Everything lives in the `<script>` block of `led-test-bench.html`, in this order
 5. **MP305**:
    - `psuConnect`: connect, bind, request remote control, start polling.
    - `psuRx`: dispatches notifications and resolves `waitFor` promises.
-   - `parseState`, `renderPsu`, `controlFrame`, `psuRequestRemote`, `psuControl`.
+   - `parseState` feeds the trend ring and any `psu.onState` hook, then `renderPsu`.
+   - `isCC` reads `outState`; `effectiveLimit(v)` is `min(psu.limitI, 150 / v)`; `renderLimit` shows the readback; `applyLimit` handles the field and quick buttons.
+   - `controlFrame`, `psuRequestRemote`, `psuControl`.
    - All PSU writes are serialized through a promise chain (`psuWrite`).
-6. **Connect buttons and startup.**
+6. **Trend charts**: a 240-sample ring (`trend`), `pushTrend`/`clearTrend`, and `drawTrend` which renders one canvas per series (`TRENDS`), strokes CC spans in the warn colour, and handles the shared hover index.
+7. **Characterize**: `runCharacterize` checks preconditions, snapshots the light state, steps through the combos using `setManual`, and collects readings with `collectFrames` (a one-shot `psu.onState` hook with an abort signal). `showResults` renders the table and builds the tab-separated text for `copyText`.
+8. **Connect buttons and startup.**
 
 The styling is a dark lighting-console look (Barlow / Barlow Semi Condensed), with color tokens on `:root`.
 
@@ -152,10 +159,9 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 ## Status and known issues
 
 - **The MP305 remote-control handshake is not yet confirmed in this tool.** The two-step `remoteCon=2`/`remoteCon=1` flow and the on-screen prompts follow the upstream notes. Earlier builds got `31 C9 01` (rejected) because they skipped the request. If control still fails, check the log for "Remote control granted".
-- The MP305's `outState` (CV/CC) is parsed but not displayed. CC is inferred from measured current versus the limit instead.
 - With a single Triones controller, W combined with RGB depends on `FF` support, which most units lack.
 - Reconnecting always goes through the browser device picker; `navigator.bluetooth.getDevices()` isn't used.
-- No persistence: presets, the in-use flags and pattern speed reset on reload.
+- No persistence: the current limit, in-use flags, pattern speed and tape length reset on reload.
 
 ## Development notes
 
@@ -163,7 +169,7 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 - Test manually against real hardware. The log is the main debugging tool. Protocol changes should log raw frames (`hex()`) the first time they fire.
 - BLE writes: always go through the per-device queue (`Triones.send`/`force`, `psuWrite`). Parallel GATT operations on one device throw "GATT operation already in progress".
 - The UI must stay usable at narrow widths (layout collapses below 900 px and 700 px) and keep visible keyboard focus.
-- Safety conventions: the current limit always goes to maximum, voltage increases while live require confirmation, and a single-controller setup must never silently drop a requested channel without logging or showing it in the mode line.
+- Safety conventions: the current limit defaults to the supply's maximum and only changes when the operator sets it; voltage increases while live require confirmation; Characterize never switches the output on or changes the voltage; and a single-controller setup must never silently drop a requested channel without logging or showing it in the mode line.
 
 ## Roadmap
 

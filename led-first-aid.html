@@ -67,12 +67,12 @@ button:disabled{opacity:.4;cursor:default}
 .trend{background:var(--well);border-radius:4px;padding:8px 10px 6px;margin-top:8px}
 .trend .thead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;color:var(--dim)}
 .trend .thead b{font-family:"Barlow Semi Condensed",sans-serif;font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
-.trend canvas{display:block;width:100%;height:44px;margin-top:5px;cursor:crosshair;touch-action:none}
+.trend canvas{display:block;width:100%;height:44px;margin-top:5px;cursor:crosshair;touch-action:pan-y}
 .trend .tfoot{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-top:3px}
 
 /* Current limit */
 .lim{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--well);border-radius:4px;padding:9px 10px;margin-top:8px}
-.lim .cap{font-size:13px;color:var(--dim)}
+.cap{font-size:13px;color:var(--dim)}
 .lim input[type=number]{width:72px;font:inherit;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text);background:#2e3237;border:1px solid #4a4f57;border-radius:4px;padding:5px 6px;text-align:right}
 .lim .quick{display:flex;gap:4px;margin-left:auto}
 .lim .quick button{padding:4px 8px;font-size:12px}
@@ -253,7 +253,7 @@ table.res td.limited{color:var(--warn)}
       <p class="sub">Set the supply voltage and switch the output on first. Each color is driven to full in
         turn while the draw is averaged over several readings.</p>
       <div class="len">
-        <label class="cap" for="charLen" style="font-size:13px;color:var(--dim)">Tape length</label>
+        <label class="cap" for="charLen">Tape length</label>
         <input type="number" id="charLen" min="0.01" step="0.1" placeholder="0.0">
         <select id="charUnit" aria-label="Length unit">
           <option value="m">meters</option>
@@ -346,7 +346,9 @@ const ctlB = new Triones("B", "White controller");
 /* ================= Light state ================= */
 const lv = { r: 0, g: 0, b: 0, w: 0, m: 255 };   // manual levels
 let out = { r: 0, g: 0, b: 0, w: 0 };            // what's actually sent (pre-master)
-let pattern = "off", patStart = 0, patTimer = null;
+let pattern = "off", patTimer = null;
+// Phase accumulates so changing the speed mid-run doesn't jump.
+let phase = 0, lastT = 0;
 const used = { r: true, g: true, b: true, w: true };   // channels present on the tape under test
 const eff = k => used[k] ? out[k] : 0;
 
@@ -437,7 +439,8 @@ function pushOutput(forceAll) {
 const ORDER = ["r", "g", "b", "w"];
 const gamma = x => Math.pow(Math.max(0, Math.min(1, x)), 2.2);
 function stepTime() { return +$("speed").value / 100; }
-$("speed").addEventListener("input", () => { $("speedTxt").textContent = stepTime().toFixed(1) + " s/step"; });
+function showStepTime() { $("speedTxt").textContent = stepTime().toFixed(1) + " s/step"; }
+$("speed").addEventListener("input", showStepTime);
 
 document.querySelectorAll("#patterns button").forEach(btn => btn.addEventListener("click", () => startPattern(btn.dataset.p)));
 function markPattern(p) {
@@ -453,8 +456,6 @@ function stopPattern() {
   if (pattern === "off") return;
   pattern = "off"; clearInterval(patTimer); patTimer = null; markPattern("off");
 }
-// Phase accumulates so changing the speed mid-run doesn't jump.
-let phase = 0, lastT = 0;
 function tick() {
   const now = performance.now();
   if (!lastT || now - lastT > 500) lastT = now;
@@ -486,12 +487,14 @@ function tick() {
 
 /* ================= ISDT MP305 power supply ================= */
 // Protocol per pymp305 (community reverse-engineered, not yet hardware-verified).
-const MAX_I = 5.0, MAX_P = 150;
+const MAX_I = 5.1, MAX_P = 150;            // 5.1 A is the MP305's actual ceiling
 const U = s => `0000${s}-0000-1000-8000-00805f9b34fb`;
 const P_SVC = U("af00"), P_C1 = U("af01"), P_C2 = U("af02");
-const psu = { dev: null, c1: null, c2: null, st: null, waiters: [], chain: Promise.resolve(), poll: null, targetV: 12, short: 0, rxCount: 0 };
+const psu = { dev: null, c1: null, c2: null, st: null, waiters: [], chain: Promise.resolve(), poll: null, targetV: 12, short: 0, rxCount: 0,
+              limitI: MAX_I, limitPending: false, onState: null };
 
-const maxCurrent = v => Math.min(MAX_I, MAX_P / v);
+// The operator's limit, still clamped by the supply's 150 W envelope at higher voltages.
+const effectiveLimit = v => Math.min(psu.limitI, MAX_P / v);
 
 function psuWrite(ch, bytes, withResp) {
   psu.chain = psu.chain.then(async () => {
@@ -544,6 +547,8 @@ async function psuConnect(showAll) {
 }
 function psuGone() {
   clearInterval(psu.poll); psu.c1 = psu.c2 = null; psu.st = null; psu.remote = false;
+  psu.limitPending = false; psu.onState = null;
+  clearTrend();                       // don't splice an old trace onto a new session
   setChip("Psu", false); $("psuMisc").textContent = "Not connected";
   log("Power supply disconnected.");
   renderPsu();
@@ -586,8 +591,18 @@ function parseState(b) {
   s.w = u16(b, i) / 100; i += 2;
   s.currentOver = b[i++]; s.realChange = b[i++]; s.voltageSlow = b[i++];
   s.output = b[i++]; s.model = b[i++]; i += 2; s.temp = b[i++];
-  psu.st = s; psu.lastState = performance.now();
+  psu.st = s;
+  pushTrend(s);
+  if (psu.onState) psu.onState(s);
   renderPsu();
+}
+
+// Regulation state comes straight from the supply (outState 1=CV, 2=CC). The current
+// comparison is only a fallback for firmware that leaves outState at 0.
+function isCC(s) {
+  if (!s || !s.output) return false;
+  if (s.outState === 1 || s.outState === 2) return s.outState === 2;
+  return s.setI > 0 && s.i >= s.setI * 0.98;
 }
 
 function renderPsu() {
@@ -596,28 +611,69 @@ function renderPsu() {
   $("mA").textContent = s ? s.i.toFixed(3) : "-.---";
   $("mW").textContent = s ? s.w.toFixed(1) : "--.-";
   $("setV").textContent = s ? `Set ${s.setV.toFixed(2)} V` : "Set --.-- V";
-  $("setI").textContent = s ? `Limit ${s.setI.toFixed(3)} A` : "Limit -.--- A";
+  const on = !!(s && s.output);
+  if (!on) psu.limitPending = false;          // cycling the output engages the new limit
+  const cc = isCC(s);
+  const mode = $("setMode");
+  mode.textContent = !s ? "--" : !on ? "Output off" : cc ? "CC — current limiting" : "CV";
+  mode.style.color = cc ? "var(--warn)" : "";
   const v = s ? s.setV || psu.targetV : psu.targetV;
-  const avail = v * (s ? s.setI || maxCurrent(v) : maxCurrent(v));
+  const avail = v * (s ? s.setI || effectiveLimit(v) : effectiveLimit(v));
   $("availW").textContent = avail.toFixed(0) + " W";
   const load = s ? s.w / avail : 0;
   $("loadBar").style.width = Math.min(100, load * 100) + "%";
   $("loadBar").classList.toggle("hot", load > 0.9);
   $("loadTxt").textContent = s ? `Load ${Math.round(load * 100)}%` : "Load --";
   $("headroom").textContent = s ? `${Math.max(0, avail - s.w).toFixed(1)} W headroom` : "";
-  const on = !!(s && s.output);
   $("outBtn").textContent = on ? "Output on" : "Output off";
   $("outBtn").classList.toggle("on", on);
-  if (s) {
-    const cc = s.setI > 0 && s.i >= s.setI * 0.98 && on;
-    $("psuMisc").textContent = `${s.temp} °C, battery ${s.battPct}%` + (cc ? ", current limiting" : "");
-  }
+  if (s) $("psuMisc").textContent = `${s.temp} °C, battery ${s.battPct}%`;
+  renderLimit();
   document.querySelectorAll("#presets button").forEach(x =>
     x.setAttribute("aria-pressed", Math.abs(+x.dataset.v - (s ? s.setV : psu.targetV)) < 0.05));
 }
 
+// The supply echoes its own limit back in every state frame, so a setpoint that didn't take
+// is visible rather than assumed.
+function renderLimit() {
+  const s = psu.st, note = $("limNote");
+  if (!s) { note.textContent = "Supply reports -.--- A"; note.classList.remove("bad"); return; }
+  const want = effectiveLimit(s.setV || psu.targetV);
+  const drift = Math.abs(s.setI - want) > 0.02;
+  let txt = `Supply reports ${s.setI.toFixed(3)} A`;
+  if (drift) txt += ` — asked for ${want.toFixed(2)} A`;
+  else if (want < psu.limitI - 1e-6) txt += ` — capped by the ${MAX_P} W envelope`;
+  if (psu.limitPending) txt += ". Cycle the output for the lower limit to engage.";
+  note.textContent = txt;
+  note.classList.toggle("bad", drift || psu.limitPending);
+}
+
+function applyLimit(a) {
+  if (!(a > 0)) { $("limI").value = psu.limitI; return; }
+  const v = Math.min(MAX_I, Math.max(0.1, Math.round(a * 100) / 100));
+  const live = !!(psu.st && psu.st.output);
+  const lowering = v < psu.limitI - 1e-6;
+  psu.limitI = v;
+  $("limI").value = v;
+  // Documented firmware quirk: lowering the limit while live doesn't engage CC until the
+  // output is cycled. Say so rather than let the operator trust a cap that isn't active.
+  if (lowering && live) {
+    psu.limitPending = true;
+    log(`Current limit lowered to ${v.toFixed(2)} A while the output is live. Cycle the output for CC to engage.`, "err");
+  } else {
+    psu.limitPending = false;
+    log(`Current limit set to ${v.toFixed(2)} A.`, "tx");
+  }
+  if (psu.c1) psuControl(psu.st && psu.st.setV ? psu.st.setV : psu.targetV, live);
+  renderPsu();
+  drawTrends();                               // the limit reference line moved
+}
+$("limI").addEventListener("change", e => applyLimit(parseFloat(e.target.value)));
+document.querySelectorAll("[data-lim]").forEach(b =>
+  b.addEventListener("click", () => applyLimit(+b.dataset.lim)));
+
 function controlFrame(remote, v, on) {
-  const i = maxCurrent(v);
+  const i = effectiveLimit(v);
   const vv = Math.round(v * 100), ii = Math.round(i * 1000);
   const st = psu.st || {};
   return [0x12, 0xc8, remote, vv & 0xff, vv >> 8, ii & 0xff, ii >> 8, 3, st.voltageSlow || 0, st.currentOver || 0, on ? 1 : 0, 0, 0];
@@ -642,7 +698,7 @@ async function psuControl(v, on) {
   if (!psu.c1) { log("Power supply not connected.", "err"); return; }
   if (!psu.remote && !(await psuRequestRemote())) return;
   const reply = waitFor(0xc9, 3000);
-  log(`PSU set ${v.toFixed(2)} V, ${maxCurrent(v).toFixed(3)} A, output ${on ? "on" : "off"}`, "tx");
+  log(`PSU set ${v.toFixed(2)} V, ${effectiveLimit(v).toFixed(3)} A, output ${on ? "on" : "off"}`, "tx");
   await psuWrite(psu.c1, controlFrame(1, v, on));
   const f = await reply;
   if (f && f[2] === 1) {                      // control dropped: re-acquire once and retry
@@ -672,6 +728,254 @@ $("releaseBtn").addEventListener("click", () => {
   psuWrite(psu.c1, [0x12, 0xc8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
+/* ================= Trend charts ================= */
+// Two single-series sparklines (amps, watts) on one shared time axis. They're separate charts
+// rather than two scales on one plot: 0-5 A and 0-150 W don't belong on the same axis.
+const TREND_N = 240;                   // 240 samples at the 500 ms poll = a two-minute window
+const PAD = 2;                         // keeps the 2 px stroke inside the canvas
+const trend = [];                      // { t, i, w, cc }
+let hoverIdx = null;                   // shared: scrubbing one chart crosshairs both
+const TRENDS = [
+  { cv: "cAmps", now: "tAmpsNow", span: "tAmpsSpan", peak: "tAmpsPeak", key: "i", unit: "A", dp: 3, floor: 0.1, limit: true },
+  { cv: "cWatts", now: "tWattsNow", span: "tWattsSpan", peak: "tWattsPeak", key: "w", unit: "W", dp: 1, floor: 1, limit: false },
+];
+let TOK = null;
+const tokens = () => TOK || (TOK = (cs => ({
+  ink: cs.getPropertyValue("--amber").trim(), hot: cs.getPropertyValue("--warn").trim(),
+  dim: cs.getPropertyValue("--dim").trim(), edge: cs.getPropertyValue("--edge").trim(),
+}))(getComputedStyle(document.documentElement)));
+
+function pushTrend(s) {
+  trend.push({ t: Date.now(), i: s.i, w: s.w, cc: isCC(s) });
+  if (trend.length > TREND_N) trend.shift();
+  drawTrends();
+}
+function clearTrend() { trend.length = 0; hoverIdx = null; drawTrends(); }
+function drawTrends() { for (const c of TRENDS) drawTrend(c); }
+
+function drawTrend(c) {
+  const cv = $(c.cv), ctx = cv.getContext("2d");
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const T = tokens(), n = trend.length;
+  const peak = n ? Math.max(...trend.map(p => p[c.key])) : 0;
+  const lim = c.limit ? psu.limitI : 0;
+  // Scale 0-to-headroom so a flat trace stays flat instead of amplifying noise. The limit
+  // line joins the scale once the draw is within reach of it.
+  let top = Math.max(peak * 1.15, c.floor);
+  if (c.limit && peak >= lim * 0.5) top = Math.max(top, lim * 1.08);
+  const x = i => PAD + (W - PAD * 2) * (n < 2 ? 1 : i / (n - 1));
+  const y = v => H - PAD - (H - PAD * 2) * Math.min(1, v / top);
+
+  ctx.strokeStyle = T.edge; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, H - .5); ctx.lineTo(W, H - .5); ctx.stroke();
+  if (c.limit && lim <= top) {
+    const ly = Math.round(y(lim)) + .5;
+    ctx.save(); ctx.strokeStyle = T.hot; ctx.setLineDash([3, 3]); ctx.globalAlpha = .7;
+    ctx.beginPath(); ctx.moveTo(0, ly); ctx.lineTo(W, ly); ctx.stroke(); ctx.restore();
+  }
+  // Stroke in runs of the same CC state so limiting spans read red.
+  ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (let i = 0; i < n;) {
+    const cc = trend[i].cc;
+    let j = i;
+    while (j + 1 < n && trend[j + 1].cc === cc) j++;
+    ctx.strokeStyle = cc ? T.hot : T.ink;
+    ctx.beginPath();
+    const from = Math.max(0, i - 1);           // overlap one sample so runs join
+    for (let k = from; k <= j; k++) {
+      const px = x(k), py = y(trend[k][c.key]);
+      if (k === from) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    if (from === j) ctx.lineTo(x(j) + .01, y(trend[j][c.key]));   // a lone sample still shows as a dot
+    ctx.stroke();
+    i = j + 1;
+  }
+  const hi = hoverIdx != null && hoverIdx < n ? hoverIdx : null;
+  if (hi != null) {
+    const hx = Math.round(x(hi)) + .5;
+    ctx.strokeStyle = T.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, H); ctx.stroke();
+    ctx.fillStyle = trend[hi].cc ? T.hot : T.ink;
+    ctx.beginPath(); ctx.arc(x(hi), y(trend[hi][c.key]), 3.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Labels wear text ink; the mark carries the colour.
+  const shown = hi != null ? trend[hi] : n ? trend[n - 1] : null;
+  $(c.now).textContent = (shown ? shown[c.key].toFixed(c.dp) : c.dp === 3 ? "-.---" : "--.-") + " " + c.unit;
+  $(c.peak).textContent = n ? `peak ${peak.toFixed(c.dp)} ${c.unit}` : "";
+  let span = "No data";
+  if (hi != null) { const ago = Math.round((trend[n - 1].t - trend[hi].t) / 1000); span = ago ? `${ago} s ago` : "now"; }
+  else if (n > 1) { const sec = Math.round((trend[n - 1].t - trend[0].t) / 1000); span = "last " + (sec < 100 ? `${sec} s` : `${(sec / 60).toFixed(1)} min`); }
+  else if (n) span = "starting";
+  $(c.span).textContent = span;
+}
+for (const c of TRENDS) {
+  const cv = $(c.cv);
+  cv.addEventListener("pointermove", e => {
+    if (!trend.length) return;
+    const r = cv.getBoundingClientRect();
+    const f = (e.clientX - r.left - PAD) / Math.max(1, r.width - PAD * 2);
+    hoverIdx = Math.max(0, Math.min(trend.length - 1, Math.round(f * (trend.length - 1))));
+    drawTrends();
+  });
+  cv.addEventListener("pointerleave", () => { hoverIdx = null; drawTrends(); });
+}
+addEventListener("resize", drawTrends);
+
+/* ================= Characterize LED tape ================= */
+// Drives each in-use channel to full in turn, averages the supply's readings, and works out
+// per-metre / per-foot figures. The light is the only thing it drives: the operator sets the
+// voltage and switches the output on beforehand.
+const FT_PER_M = 3.280839895;
+const CHAR_N = 6;                      // readings averaged per step (~3 s at the 500 ms poll)
+const CH_NAME = { r: "Red", g: "Green", b: "Blue", w: "White" };
+const dlg = $("charDlg");
+let charAbort = null;                  // AbortController for the run in progress
+let charText = "";                     // last result as plain text, for Copy
+
+function charStatus(msg, bad) { const el = $("charStatus"); el.textContent = msg; el.classList.toggle("bad", !!bad); }
+
+$("charBtn").addEventListener("click", () => {
+  charStatus(""); $("charResults").hidden = true; $("charCopy").hidden = true;
+  dlg.showModal();
+  $("charLen").focus();
+});
+$("charClose").addEventListener("click", () => dlg.close());
+dlg.addEventListener("close", () => { if (charAbort) charAbort.abort(); });
+$("charRun").addEventListener("click", () => charAbort ? charAbort.abort() : runCharacterize());
+$("charCopy").addEventListener("click", e => copyText(charText, e.target));
+
+// Resolve with the next n state frames, or whatever arrived before the timeout or abort.
+function collectFrames(n, ms, signal) {
+  return new Promise(res => {
+    const got = [];
+    const finish = () => { psu.onState = null; clearTimeout(t); signal.removeEventListener("abort", finish); res(got); };
+    const t = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish);
+    psu.onState = s => { got.push({ v: s.v, i: s.i, w: s.w, cc: isCC(s) }); if (got.length >= n) finish(); };
+  });
+}
+const mean = (f, k) => f.reduce((a, x) => a + x[k], 0) / f.length;
+
+async function runCharacterize() {
+  const lenVal = parseFloat($("charLen").value), unit = $("charUnit").value;
+  if (!(lenVal > 0)) { charStatus("Enter the tape length first.", true); $("charLen").focus(); return; }
+  const missing = [];
+  if (!psu.c1) missing.push("the power supply isn't connected");
+  else if (!(psu.st && psu.st.output)) missing.push("the supply output is off");
+  if (!ctlA.connected && !ctlB.connected) missing.push("no light controller is connected");
+  if (missing.length) { charStatus("Can't start: " + missing.join("; ") + ".", true); return; }
+
+  const metres = unit === "ft" ? lenVal / FT_PER_M : lenVal, feet = metres * FT_PER_M;
+  const chans = ORDER.filter(k => used[k]);
+  const steps = [{ name: "Baseline (all off)", lv: { r: 0, g: 0, b: 0, w: 0 }, base: true }];
+  for (const k of chans) steps.push({ name: CH_NAME[k], lv: { r: 0, g: 0, b: 0, w: 0, [k]: 255 } });
+  if (chans.length > 1) steps.push({ name: "All channels", all: true,
+    lv: { r: used.r ? 255 : 0, g: used.g ? 255 : 0, b: used.b ? 255 : 0, w: used.w ? 255 : 0 } });
+
+  // Snapshot the bench so it comes back exactly as it was, whatever happens mid-run.
+  const saved = { lv: { ...lv }, out: { ...out }, pattern };
+  charAbort = new AbortController();
+  const sig = charAbort.signal;
+  $("charRun").textContent = "Cancel";
+  $("charResults").hidden = true; $("charCopy").hidden = true;
+  log(`Characterizing ${metres.toFixed(2)} m of tape at ${psu.st.setV.toFixed(2)} V.`, "tx");
+  const rows = [];
+  try {
+    lv.m = 255;                          // readings are meaningless under a dimmed master
+    for (const [k, st] of steps.entries()) {
+      if (sig.aborted) break;
+      charStatus(`Step ${k + 1} of ${steps.length}: ${st.name}\u2026`);
+      setManual(st.lv.r, st.lv.g, st.lv.b, st.lv.w);
+      await sleep(1200);                 // let the supply's reading settle
+      if (sig.aborted) break;
+      const f = await collectFrames(CHAR_N, 4000, sig);
+      if (sig.aborted) break;
+      if (!f.length) throw new Error("no readings from the supply");
+      rows.push({ ...st, v: mean(f, "v"), i: mean(f, "i"), w: mean(f, "w"), cc: f.some(x => x.cc), n: f.length });
+    }
+  } catch (e) {
+    charStatus("Stopped: " + e.message, true);
+    log("Characterize failed: " + e.message, "err");
+  } finally {
+    Object.assign(lv, saved.lv); out = saved.out;
+    syncPicker(); render(); pushOutput();
+    if (saved.pattern !== "off") startPattern(saved.pattern);
+    charAbort = null;
+    $("charRun").textContent = "Start";
+  }
+  if (sig.aborted) { charStatus("Cancelled. Light restored."); return; }
+  if (rows.length === steps.length) showResults(rows, metres, feet, lenVal, unit);
+}
+
+function showResults(rows, metres, feet, lenVal, unit) {
+  const base = rows.find(r => r.base), v = base.v;
+  const net = r => ({ i: Math.max(0, r.i - base.i), w: Math.max(0, r.w - base.w) });
+  const head = rows.find(r => r.all) || rows[rows.length - 1], hn = net(head);
+  const limited = rows.some(r => r.cc && !r.base);
+  const fmt = (x, d) => x.toFixed(d);
+
+  let html = `<div class="hero">
+      <div class="big">${fmt(hn.w / metres, 2)} W/m</div>
+      <div class="cap">${head.name}, net of baseline, at ${fmt(v, 2)} V</div>
+      <div class="also">${fmt(hn.w / feet, 2)} W/ft &nbsp;\u00b7&nbsp; ${fmt(hn.i / metres, 3)} A/m &nbsp;\u00b7&nbsp; ${fmt(hn.i / feet, 3)} A/ft</div>
+    </div>`;
+  if (limited) html += `<p class="status bad" style="margin:10px 0 0">The supply was current-limiting during the rows in red, so those figures are the limit, not the tape's true draw. Raise the limit or test a shorter length.</p>`;
+  html += `<div class="tblwrap"><table class="res"><thead><tr><th>Combo</th><th>A</th><th>W</th><th>W/m</th><th>W/ft</th><th>A/m</th><th>A/ft</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const nn = r.base ? { i: r.i, w: r.w } : net(r);
+    const cls = r.cc && !r.base ? ' class="limited"' : "";
+    html += `<tr${r.all ? ' class="total"' : ""}><td>${r.name}</td>` +
+      `<td${cls}>${fmt(nn.i, 3)}</td><td${cls}>${fmt(nn.w, 1)}</td>` +
+      (r.base ? "<td>\u2014</td><td>\u2014</td><td>\u2014</td><td>\u2014</td>"
+        : `<td${cls}>${fmt(nn.w / metres, 2)}</td><td${cls}>${fmt(nn.w / feet, 2)}</td><td${cls}>${fmt(nn.i / metres, 3)}</td><td${cls}>${fmt(nn.i / feet, 3)}</td>`) +
+      "</tr>";
+  }
+  html += `</tbody></table></div><p class="sub" style="margin-top:8px">Rows are net of the baseline (controller and supply idle draw); each is the mean of up to ${CHAR_N} readings.</p>`;
+  $("charResults").innerHTML = html;
+  $("charResults").hidden = false;
+  $("charCopy").hidden = false;
+  charStatus("Done. Light restored.");
+
+  // Plain text, tab-separated, so it pastes cleanly into notes or a spreadsheet.
+  const L = [
+    "LED First Aid \u2014 tape characterization",
+    new Date().toLocaleString(),
+    `Length: ${lenVal} ${unit} (${fmt(metres, 2)} m / ${fmt(feet, 2)} ft)   Supply: ${fmt(v, 2)} V, limit ${fmt(psu.limitI, 2)} A`,
+    `Baseline (controllers idle): ${fmt(base.i, 3)} A, ${fmt(base.w, 1)} W \u2014 subtracted from every row below`,
+    "",
+    ["Combo", "A", "W", "W/m", "W/ft", "A/m", "A/ft", "Note"].join("\t"),
+  ];
+  for (const r of rows) {
+    if (r.base) continue;
+    const nn = net(r);
+    L.push([r.name, fmt(nn.i, 3), fmt(nn.w, 1), fmt(nn.w / metres, 2), fmt(nn.w / feet, 2),
+      fmt(nn.i / metres, 3), fmt(nn.i / feet, 3), r.cc ? "CURRENT LIMITED" : ""].join("\t"));
+  }
+  charText = L.join("\n");
+  log(`Characterize: ${head.name} ${fmt(hn.w / metres, 2)} W/m (${fmt(hn.w / feet, 2)} W/ft), ${fmt(hn.i / metres, 3)} A/m.`, "ok");
+}
+
+async function copyText(text, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; }
+  catch (e) {
+    // file:// and some embedded viewers refuse the async clipboard; fall back to the old way.
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand("copy"); } catch (e2) { ok = false; }
+    ta.remove();
+  }
+  if (!ok) log("Copy failed. Select the table and copy it by hand.", "err");
+  const was = btn.textContent;
+  btn.textContent = ok ? "Copied" : "Copy failed";
+  setTimeout(() => { btn.textContent = was; }, 1400);
+}
+
 /* ================= Connect buttons ================= */
 async function guard(fn, what) {
   try { await fn(); }
@@ -690,7 +994,7 @@ if (!navigator.bluetooth) {
   $("noBt").style.display = "block";
   ["btnPsu", "btnA", "btnB"].forEach(id => $(id).disabled = true);
 }
-render(); renderPsu(); pushOutput();
+render(); renderPsu(); pushOutput(); showStepTime(); drawTrends();
 log("Ready. Close the phone apps first; each device accepts one connection at a time.");
 log("PSU protocol is community reverse-engineered and unverified. Watch the first state frames below.");
 </script>
