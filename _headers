@@ -1,0 +1,6 @@
+# Web Bluetooth needs a secure, top-level context. Pages gives us HTTPS; these make the rest explicit.
+/*
+  Permissions-Policy: bluetooth=(self)
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

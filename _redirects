@@ -1,0 +1,3 @@
+# Serve the app at the site root without renaming the file. 200 = rewrite, so the URL stays "/".
+# Target is extensionless: Pages canonicalizes /x.html -> /x, and a rewrite to the .html form becomes a 308.
+/  /led-first-aid  200
