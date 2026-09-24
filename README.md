@@ -2,16 +2,25 @@
 
 A browser-based bench tool for testing LED tape in the field. It connects over Bluetooth to a portable power supply and to one or two cheap BLE LED controllers. From one page you can set the supply voltage, read live power draw, and drive the tape through colors and test patterns.
 
-The whole app is a single self-contained HTML file (`led-first-aid.html`): vanilla JS and CSS with no build step and no dependencies. The only external request is Google Fonts, which has system-font fallbacks.
+The whole app is a single self-contained HTML file (`public/led-first-aid.html`): vanilla JS and CSS with no build step and no dependencies. The only external request is Google Fonts, which has system-font fallbacks.
 
 ## Running it
 
-Open `led-first-aid.html` directly in **Chrome or Edge** (desktop, Windows 10+), or serve it from `localhost`. Two conditions apply:
+Open `public/led-first-aid.html` directly in **Chrome or Edge** (desktop, Windows 10+), or serve it from `localhost`. Two conditions apply:
 
 - It needs **Web Bluetooth**, which requires a secure context (`file://` or `localhost` both qualify) and a Chromium browser. Firefox and Safari don't support it. On iOS, only the Bluefy browser works.
 - It **must run as a top-level page**. Web Bluetooth is usually blocked inside iframes and embedded viewers, so hosted previews won't work.
 
 Close the phone apps (Happy Lighting, PolyLink) before connecting. Each device accepts only one BLE connection at a time.
+
+## Hosting
+
+The site is deployed to Cloudflare Workers as static assets from `public/`, configured by `wrangler.jsonc`; there is no build step, and pushing to `main` deploys. Two files beside the page do the platform work:
+
+- `public/_redirects` rewrites `/` to the app so the file keeps its name. The target is the extensionless `/led-first-aid`, because Workers canonicalizes `.html` URLs and a rewrite to the `.html` form turns into a 308.
+- `public/_headers` sets `Permissions-Policy: bluetooth=(self)` and `X-Frame-Options: DENY`. The app can't work inside a frame anyway (Web Bluetooth is blocked there), so refusing to be framed turns a silent failure into an obvious one.
+
+Only `public/` is uploaded, which is what keeps this README, the git history and the config out of the site. To try the deployment locally without an account, run `npx wrangler dev` and open the URL it prints.
 
 ## Hardware
 
@@ -65,7 +74,7 @@ Shows connection events, the first two raw PSU state frames, control results, an
 
 ## Code layout
 
-Everything lives in the `<script>` block of `led-test-bench.html`, in this order:
+Everything lives in the `<script>` block of `public/led-first-aid.html`, in this order:
 
 1. **Helpers**: `$`, `hex`, `sleep`, `log`, `setChip`.
 2. **`class Triones`**: connect, disconnect, and a latest-wins write queue. While a write is in flight, only the newest frame is kept, and duplicates of the last-sent frame are skipped. Two instances exist: `ctlA` (RGB) and `ctlB` (white).

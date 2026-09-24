@@ -1,0 +1,10 @@
+{
+  // Cloudflare Workers static-assets config. There is no build step: public/ is the whole site.
+  // Only that directory is uploaded, which keeps this file, the README and .git out of the deployment.
+  // `name` must match the Worker created in the dashboard; rename one or the other if they differ.
+  "name": "led-first-aid",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public"
+  }
+}
