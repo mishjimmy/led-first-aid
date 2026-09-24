@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LED test bench</title>
+<title>LED First Aid</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
 <style>
@@ -11,6 +11,8 @@
   --panel:#26292d; --well:#191b1e; --edge:#383c42; --text:#e7e4dd; --dim:#8b8f96;
   --amber:#f3b43a; --live:#57c27a; --warn:#e5664f;
   --r:#ff4a3d; --g:#39d46a; --b:#3f7dff; --w:#f4efe1; --m:#c9c3b6;
+  --cross:#e03a2f;
+  color-scheme:dark;
   font-family:"Barlow",system-ui,sans-serif; color:var(--text); background:var(--well);
 }
 *{box-sizing:border-box}
@@ -18,7 +20,9 @@ body{margin:0;min-height:100vh;background:var(--well)}
 .wrap{max-width:1180px;margin:0 auto;padding:18px}
 .cond{font-family:"Barlow Semi Condensed",sans-serif}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:12px 16px;background:var(--panel);border:1px solid var(--edge);border-radius:6px}
-h1{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:22px;margin:0 8px 0 0}
+h1{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:22px;margin:0}
+.brand{display:flex;align-items:center;gap:9px;margin-right:4px}
+.brand .cross{width:24px;height:24px;flex:none;fill:var(--cross)}
 .chip{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 10px;background:var(--well);border-radius:5px}
 .chip .dot{width:9px;height:9px;border-radius:50%;background:#555}
 .chip.on .dot{background:var(--live);box-shadow:0 0 7px var(--live)}
@@ -59,6 +63,22 @@ button:disabled{opacity:.4;cursor:default}
 .psufoot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;color:var(--dim)}
 .psufoot button{padding:4px 10px;font-size:13px}
 
+/* Trend */
+.trend{background:var(--well);border-radius:4px;padding:8px 10px 6px;margin-top:8px}
+.trend .thead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px;color:var(--dim)}
+.trend .thead b{font-family:"Barlow Semi Condensed",sans-serif;font-size:15px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.trend canvas{display:block;width:100%;height:44px;margin-top:5px;cursor:crosshair;touch-action:none}
+.trend .tfoot{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-top:3px}
+
+/* Current limit */
+.lim{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--well);border-radius:4px;padding:9px 10px;margin-top:8px}
+.lim .cap{font-size:13px;color:var(--dim)}
+.lim input[type=number]{width:72px;font:inherit;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text);background:#2e3237;border:1px solid #4a4f57;border-radius:4px;padding:5px 6px;text-align:right}
+.lim .quick{display:flex;gap:4px;margin-left:auto}
+.lim .quick button{padding:4px 8px;font-size:12px}
+.lim .note{flex-basis:100%;font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;line-height:1.35}
+.lim .note.bad{color:var(--warn)}
+
 /* Light */
 .light{display:grid;grid-template-columns:auto 1fr;gap:18px}
 @media (max-width:700px){.light{grid-template-columns:1fr}}
@@ -88,6 +108,29 @@ input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30
 .modeline{font-size:13px;color:var(--dim)}
 .modeline b{color:var(--text);font-weight:500}
 
+/* Characterize */
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--edge);border-radius:6px;padding:0;max-width:620px;width:calc(100% - 28px)}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+.dlg{padding:16px}
+.dlg h2{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:18px;margin:0 0 4px}
+.dlg .len{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0}
+.dlg .len input{width:92px;font:inherit;font-size:15px;font-variant-numeric:tabular-nums;color:var(--text);background:#2e3237;border:1px solid #4a4f57;border-radius:4px;padding:6px 8px;text-align:right}
+.dlg .len select{font:inherit;font-size:14px;color:var(--text);background:#2e3237;border:1px solid #4a4f57;border-radius:4px;padding:6px 8px}
+.dlg .status{font-size:13px;color:var(--dim);min-height:19px;line-height:1.4}
+.dlg .status.bad{color:var(--warn)}
+.hero{background:var(--well);border-radius:4px;padding:12px;margin-top:14px}
+.hero .big{font-family:"Barlow Semi Condensed",sans-serif;font-size:36px;font-weight:600;line-height:1;color:var(--amber);font-variant-numeric:tabular-nums}
+.hero .cap{font-size:12px;color:var(--dim);margin-top:2px}
+.hero .also{font-size:13px;margin-top:8px;font-variant-numeric:tabular-nums;color:var(--text)}
+.tblwrap{overflow-x:auto;margin-top:12px}
+table.res{border-collapse:collapse;width:100%;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.res th,table.res td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--edge)}
+table.res th{color:var(--dim);font-weight:500;font-size:11px}
+table.res th:first-child,table.res td:first-child{text-align:left}
+table.res tr.total td{font-weight:600;border-bottom:0}
+table.res td.limited{color:var(--warn)}
+.dlg .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+
 #log{height:150px;overflow:auto;margin:0;padding:8px 10px;background:var(--well);border-radius:4px;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--dim);white-space:pre-wrap}
 #log .ok{color:var(--live)} #log .err{color:var(--warn)} #log .tx{color:var(--text)}
 .banner{margin-top:16px;padding:12px 16px;border-radius:6px;background:#3a2320;border:1px solid var(--warn);display:none}
@@ -97,7 +140,10 @@ input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30
 <body>
 <div class="wrap">
   <header>
-    <h1>LED test bench</h1>
+    <div class="brand">
+      <svg class="cross" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.4 2h5.2a1.4 1.4 0 0 1 1.4 1.4V8h4.6A1.4 1.4 0 0 1 22 9.4v5.2a1.4 1.4 0 0 1-1.4 1.4H16v4.6a1.4 1.4 0 0 1-1.4 1.4H9.4A1.4 1.4 0 0 1 8 20.6V16H3.4A1.4 1.4 0 0 1 2 14.6V9.4A1.4 1.4 0 0 1 3.4 8H8V3.4A1.4 1.4 0 0 1 9.4 2z"/></svg>
+      <h1>LED First Aid</h1>
+    </div>
     <div class="chip" id="chipPsu"><span class="dot"></span><span class="lbl">Power supply</span><button id="btnPsu">Connect</button></div>
     <div class="chip" id="chipA"><span class="dot"></span><span class="lbl">RGB controller</span><button id="btnA">Connect</button></div>
     <div class="chip" id="chipB"><span class="dot"></span><span class="lbl">White controller</span><button id="btnB">Connect</button></div>
@@ -116,7 +162,31 @@ input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30
         <div class="meter"><div class="val" id="mA">-.---</div><div class="unit">amps</div></div>
         <div class="meter"><div class="val" id="mW">--.-</div><div class="unit">watts</div></div>
       </div>
-      <div class="setline"><span id="setV">Set --.-- V</span><span id="setI">Limit -.--- A</span></div>
+      <div class="setline"><span id="setV">Set --.-- V</span><span id="setMode">--</span></div>
+
+      <div class="trend">
+        <div class="thead"><span id="tAmpsCap">Current draw</span><b id="tAmpsNow">-.--- A</b></div>
+        <canvas id="cAmps" role="img" aria-label="Current draw trend over the recent window"></canvas>
+        <div class="tfoot"><span id="tAmpsSpan">No data</span><span id="tAmpsPeak"></span></div>
+      </div>
+      <div class="trend">
+        <div class="thead"><span id="tWattsCap">Power draw</span><b id="tWattsNow">--.- W</b></div>
+        <canvas id="cWatts" role="img" aria-label="Power draw trend over the recent window"></canvas>
+        <div class="tfoot"><span id="tWattsSpan">No data</span><span id="tWattsPeak"></span></div>
+      </div>
+
+      <div class="lim">
+        <label class="cap" for="limI">Current limit</label>
+        <input type="number" id="limI" min="0.1" max="5.1" step="0.1" value="5.1" aria-describedby="limNote">
+        <span class="cap">A</span>
+        <span class="quick">
+          <button type="button" data-lim="1">1</button>
+          <button type="button" data-lim="3">3</button>
+          <button type="button" data-lim="5.1">Max</button>
+        </span>
+        <span class="note" id="limNote">Supply reports -.--- A</span>
+      </div>
+
 
       <div class="avail">
         <div class="top"><span class="sub">Available power</span><span class="big" id="availW">-- W</span></div>
@@ -157,6 +227,11 @@ input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30
             </div>
           </div>
 
+          <div>
+            <p class="sub" style="margin-bottom:8px">Measure draw per color and work out watts and amps per meter</p>
+            <div class="row"><button id="charBtn">Characterize LED tape</button></div>
+          </div>
+
           <div class="pat">
             <p class="sub" style="margin-bottom:8px">Test pattern</p>
             <div class="seg" id="patterns">
@@ -165,12 +240,35 @@ input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30
               <button data-p="chase" aria-pressed="false">Chase</button>
               <button data-p="fadechase" aria-pressed="false">Fading chase</button>
             </div>
-            <div class="speed"><span style="min-width:0;color:var(--dim)">Step time</span><input type="range" id="speed" min="10" max="300" value="80" aria-label="Step time"><span id="speedTxt">0.8 s/step</span></div>
+            <div class="speed"><span style="min-width:0;color:var(--dim)">Step time</span><input type="range" id="speed" min="10" max="300" value="140" aria-label="Step time"><span id="speedTxt"></span></div>
           </div>
         </div>
       </div>
     </section>
   </div>
+
+  <dialog id="charDlg" aria-labelledby="charTitle">
+    <div class="dlg">
+      <h2 id="charTitle">Characterize LED tape</h2>
+      <p class="sub">Set the supply voltage and switch the output on first. Each color is driven to full in
+        turn while the draw is averaged over several readings.</p>
+      <div class="len">
+        <label class="cap" for="charLen" style="font-size:13px;color:var(--dim)">Tape length</label>
+        <input type="number" id="charLen" min="0.01" step="0.1" placeholder="0.0">
+        <select id="charUnit" aria-label="Length unit">
+          <option value="m">meters</option>
+          <option value="ft">feet</option>
+        </select>
+        <button id="charRun" style="margin-left:auto">Start</button>
+      </div>
+      <p class="status" id="charStatus"></p>
+      <div id="charResults" hidden></div>
+      <div class="acts">
+        <button id="charCopy" hidden>Copy results</button>
+        <button id="charClose">Close</button>
+      </div>
+    </div>
+  </dialog>
 
   <section class="card" style="margin-top:16px">
     <h2>Log</h2>
