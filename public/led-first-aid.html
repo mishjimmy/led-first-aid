@@ -293,6 +293,28 @@ function setChip(id, on, label) {
   $("btn" + id).textContent = on ? "Disconnect" : "Connect";
   if (label) $("chip" + id).querySelector(".lbl").title = label;
 }
+// Every requestDevice goes through here. Bluefy (iOS) won't open a second picker while
+// GATT traffic is in flight, so the PSU poll pauses while pickerOpen is set. The call must
+// also happen synchronously in the tap's task: WebKit drops the user activation otherwise.
+let pickerOpen = false;
+async function pickDevice(opts, what) {
+  pickerOpen = true;
+  log(`Opening device picker for ${what}…`);
+  const timer = setTimeout(() =>
+    log(`Picker for ${what} hasn't returned after 10 s. The browser may be blocking a second picker.`, "err"), 10000);
+  try {
+    return await navigator.bluetooth.requestDevice(opts);
+  } finally {
+    clearTimeout(timer);
+    pickerOpen = false;
+  }
+}
+// Bluefy may only implement the older writeValue(); feature-detect on every write.
+async function gattWrite(ch, data, withResp) {
+  const noResp = !withResp && ch.properties && ch.properties.writeWithoutResponse;
+  const fn = noResp ? ch.writeValueWithoutResponse : ch.writeValueWithResponse;
+  return fn ? fn.call(ch, data) : ch.writeValue(data);
+}
 
 /* ================= Triones controllers ================= */
 class Triones {
@@ -303,7 +325,7 @@ class Triones {
     const opts = showAll
       ? { acceptAllDevices: true, optionalServices: [SVC] }
       : { filters: ["Triones", "LEDBLE", "Dream", "BRGlight", "QHM"].map(p => ({ namePrefix: p })), optionalServices: [SVC] };
-    this.dev = await navigator.bluetooth.requestDevice(opts);
+    this.dev = await pickDevice(opts, this.role);
     this.dev.addEventListener("gattserverdisconnected", () => {
       this.ch = null; this.last = null; setChip(this.id, false);
       log(this.role + " disconnected."); pushOutput(true);
@@ -331,9 +353,7 @@ class Triones {
       const key = hex(b);
       if (key === this.last) continue;
       try {
-        const d = new Uint8Array(b);
-        if (this.ch.properties.writeWithoutResponse) await this.ch.writeValueWithoutResponse(d);
-        else await this.ch.writeValue(d);
+        await gattWrite(this.ch, new Uint8Array(b), false);
         this.last = key;
       } catch (e) { log(`${this.role} write failed: ${e.message}`, "err"); await sleep(120); }
     }
@@ -499,9 +519,7 @@ const effectiveLimit = v => Math.min(psu.limitI, MAX_P / v);
 function psuWrite(ch, bytes, withResp) {
   psu.chain = psu.chain.then(async () => {
     if (!ch) return;
-    const d = new Uint8Array(bytes);
-    if (withResp || !ch.properties.writeWithoutResponse) await ch.writeValueWithResponse(d);
-    else await ch.writeValueWithoutResponse(d);
+    await gattWrite(ch, new Uint8Array(bytes), withResp);
   }).catch(e => log("PSU write failed: " + e.message, "err"));
   return psu.chain;
 }
@@ -517,7 +535,7 @@ async function psuConnect(showAll) {
   const opts = showAll
     ? { acceptAllDevices: true, optionalServices: [P_SVC] }
     : { filters: [{ namePrefix: "0000MP305" }, { namePrefix: "MP305" }, { services: [P_SVC] }], optionalServices: [P_SVC] };
-  psu.dev = await navigator.bluetooth.requestDevice(opts);
+  psu.dev = await pickDevice(opts, "power supply");
   psu.dev.addEventListener("gattserverdisconnected", psuGone);
   const server = await psu.dev.gatt.connect();
   const svc = await server.getPrimaryService(P_SVC);
@@ -540,8 +558,9 @@ async function psuConnect(showAll) {
   const hw = await waitFor(0xe1, 3000);
   if (hw) log("Hardware info: " + hex(hw), "ok");
 
-  // 0xBD never replies on this firmware; 0xC2 is the real state poll.
-  psu.poll = setInterval(() => psuWrite(psu.c1, [0x12, 0xc2]), 500);
+  // 0xBD never replies on this firmware; 0xC2 is the real state poll. It pauses while a
+  // picker is open, because Bluefy won't show one during GATT traffic.
+  psu.poll = setInterval(() => { if (!pickerOpen) psuWrite(psu.c1, [0x12, 0xc2]); }, 500);
   // Ask for remote control (remoteCon=2) so later setpoints can be applied.
   psuRequestRemote();
 }
