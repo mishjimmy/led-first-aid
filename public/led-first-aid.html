@@ -293,9 +293,12 @@ function setChip(id, on, label) {
   $("btn" + id).textContent = on ? "Disconnect" : "Connect";
   if (label) $("chip" + id).querySelector(".lbl").title = label;
 }
-// Every requestDevice goes through here. Bluefy (iOS) won't open a second picker while
-// GATT traffic is in flight, so the PSU poll pauses while pickerOpen is set. The call must
-// also happen synchronously in the tap's task: WebKit drops the user activation otherwise.
+// Bluetooth UUIDs are always the full 128-bit lowercase string. Bluefy (iOS) rejects the
+// 16-bit numeric aliases (0xffd5 and friends) with "Request payload could not be parsed".
+const U = s => `0000${s}-0000-1000-8000-00805f9b34fb`;
+// Every requestDevice goes through here. The call must happen synchronously in the tap's
+// task (WebKit drops the user activation otherwise), and the PSU poll pauses while
+// pickerOpen is set so no GATT traffic overlaps the chooser.
 let pickerOpen = false;
 async function pickDevice(opts, what) {
   pickerOpen = true;
@@ -304,6 +307,11 @@ async function pickDevice(opts, what) {
     log(`Picker for ${what} hasn't returned after 10 s. The browser may be blocking a second picker.`, "err"), 10000);
   try {
     return await navigator.bluetooth.requestDevice(opts);
+  } catch (e) {
+    // A parse or filter error must reach the page log, not just the browser's own console.
+    log(`Picker for ${what} failed: ${e.name}: ${e.message}`, "err");
+    e.logged = true;
+    throw e;
   } finally {
     clearTimeout(timer);
     pickerOpen = false;
@@ -317,21 +325,21 @@ async function gattWrite(ch, data, withResp) {
 }
 
 /* ================= Triones controllers ================= */
+const T_SVC = U("ffd5"), T_CHR = U("ffd9");       // service and its write characteristic
 class Triones {
   constructor(id, role) { Object.assign(this, { id, role, dev: null, ch: null, busy: false, pending: null, last: null }); }
   get connected() { return !!this.ch; }
   async connect(showAll) {
-    const SVC = 0xffd5;
     const opts = showAll
-      ? { acceptAllDevices: true, optionalServices: [SVC] }
-      : { filters: ["Triones", "LEDBLE", "Dream", "BRGlight", "QHM"].map(p => ({ namePrefix: p })), optionalServices: [SVC] };
+      ? { acceptAllDevices: true, optionalServices: [T_SVC] }
+      : { filters: ["Triones", "LEDBLE", "Dream", "BRGlight", "QHM"].map(p => ({ namePrefix: p })), optionalServices: [T_SVC] };
     this.dev = await pickDevice(opts, this.role);
     this.dev.addEventListener("gattserverdisconnected", () => {
       this.ch = null; this.last = null; setChip(this.id, false);
       log(this.role + " disconnected."); pushOutput(true);
     });
     const server = await this.dev.gatt.connect();
-    this.ch = await (await server.getPrimaryService(SVC)).getCharacteristic(0xffd9);
+    this.ch = await (await server.getPrimaryService(T_SVC)).getCharacteristic(T_CHR);
     setChip(this.id, true, this.dev.name);
     log(`${this.role} connected: ${this.dev.name || this.dev.id}`, "ok");
     this.force([0xcc, 0x23, 0x33]);            // power on
@@ -508,7 +516,6 @@ function tick() {
 /* ================= ISDT MP305 power supply ================= */
 // Protocol per pymp305 (community reverse-engineered, not yet hardware-verified).
 const MAX_I = 5.1, MAX_P = 150;            // 5.1 A is the MP305's actual ceiling
-const U = s => `0000${s}-0000-1000-8000-00805f9b34fb`;
 const P_SVC = U("af00"), P_C1 = U("af01"), P_C2 = U("af02");
 const psu = { dev: null, c1: null, c2: null, st: null, waiters: [], chain: Promise.resolve(), poll: null, targetV: 12, short: 0, rxCount: 0,
               limitI: MAX_I, limitPending: false, onState: null };
@@ -559,7 +566,7 @@ async function psuConnect(showAll) {
   if (hw) log("Hardware info: " + hex(hw), "ok");
 
   // 0xBD never replies on this firmware; 0xC2 is the real state poll. It pauses while a
-  // picker is open, because Bluefy won't show one during GATT traffic.
+  // picker is open so no GATT traffic overlaps the chooser.
   psu.poll = setInterval(() => { if (!pickerOpen) psuWrite(psu.c1, [0x12, 0xc2]); }, 500);
   // Ask for remote control (remoteCon=2) so later setpoints can be applied.
   psuRequestRemote();
@@ -999,9 +1006,8 @@ async function copyText(text, btn) {
 async function guard(fn, what) {
   try { await fn(); }
   catch (e) {
-    log(e.name === "NotFoundError"
-      ? `No ${what} selected. If it isn't listed, tick "Show all Bluetooth devices" and close its phone app.`
-      : `${what} connect failed: ${e.message}`, "err");
+    if (e.name === "NotFoundError") log(`No ${what} selected. If it isn't listed, tick "Show all Bluetooth devices" and close its phone app.`, "err");
+    else if (!e.logged) log(`${what} connect failed: ${e.message}`, "err");   // pickDevice already logged picker rejections
   }
 }
 $("btnPsu").addEventListener("click", () => psu.dev && psu.dev.gatt.connected

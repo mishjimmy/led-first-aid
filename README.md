@@ -76,7 +76,7 @@ Shows connection events, the first two raw PSU state frames, control results, an
 
 Everything lives in the `<script>` block of `public/led-first-aid.html`, in this order:
 
-1. **Helpers**: `$`, `hex`, `sleep`, `log`, `setChip`, `pickDevice` (the only place `requestDevice` is called; sets `pickerOpen` for the duration), and `gattWrite` (feature-detecting write used by every GATT write).
+1. **Helpers**: `$`, `hex`, `sleep`, `log`, `setChip`, `U` (builds a 128-bit UUID string from a 16-bit alias), `pickDevice` (the only place `requestDevice` is called; sets `pickerOpen` for the duration), and `gattWrite` (feature-detecting write used by every GATT write).
 2. **`class Triones`**: connect, disconnect, and a latest-wins write queue. While a write is in flight, only the newest frame is kept, and duplicates of the last-sent frame are skipped. Two instances exist: `ctlA` (RGB) and `ctlB` (white).
 3. **Light state**:
    - `lv` holds the manual levels plus master; `out` holds the levels currently being output, before master; `used` holds the in-use flags; `eff(k)` returns the effective level after the in-use flag.
@@ -100,7 +100,7 @@ The styling is a dark lighting-console look (Barlow / Barlow Semi Condensed), wi
 
 ### Triones (Happy Lighting) controllers
 
-- Service `0xFFD5`, write characteristic `0xFFD9` (write without response when supported).
+- Service `0xFFD5`, write characteristic `0xFFD9` (write without response when supported). The code passes these as 128-bit strings (`U("ffd5")`, `U("ffd9")`), never as numeric aliases; see Development notes.
 - Notify service `0xFFD0`, characteristic `0xFFD4` (status replies; not used by the current tool).
 - Advertised names start with `Triones`, `LEDBLE`, `Dream`, `BRGlight` or `QHM`. Clones vary, which is why there's a "Show all Bluetooth devices" option.
 
@@ -171,7 +171,7 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 - With a single Triones controller, W combined with RGB depends on `FF` support, which most units lack.
 - Reconnecting always goes through the browser device picker; `navigator.bluetooth.getDevices()` isn't used.
 - No persistence: the current limit, in-use flags, pattern speed and tape length reset on reload.
-- **Bluefy (iOS) may block a second device picker while the PSU is being polled.** Polling now pauses while a picker is open, and the log reports a picker that hasn't returned after 10 s. If it still fails, connect the light controllers before the PSU.
+- Bluefy (iOS): the Triones picker used to fail with Bluefy's own error "Request payload could not be parsed" because the code passed 16-bit UUID aliases; every UUID is now a 128-bit string. The PSU poll still pauses while any picker is open (harmless), and the log reports a picker that hasn't returned after 10 s as well as the name and message of any rejection.
 
 ## Development notes
 
@@ -179,6 +179,7 @@ A frame needs at least 30 bytes. Shorter frames mean the BLE MTU is too small, a
 - Test manually against real hardware. The log is the main debugging tool. Protocol changes should log raw frames (`hex()`) the first time they fire.
 - BLE writes: always go through the per-device queue (`Triones.send`/`force`, `psuWrite`), both of which write via `gattWrite` so characteristics that only implement the older `writeValue()` (Bluefy) still work. Parallel GATT operations on one device throw "GATT operation already in progress".
 - Device pickers: always open them through `pickDevice()`, and never `await` anything before `requestDevice` in a click handler. WebKit (Bluefy) drops the tap's user activation across an `await`, and the picker then silently doesn't open.
+- Always pass Bluetooth UUIDs as full 128-bit lowercase strings (use `U("ffd5")`, never `0xffd5`). Bluefy rejects numeric aliases with "Request payload could not be parsed".
 - The UI must stay usable at narrow widths (layout collapses below 900 px and 700 px) and keep visible keyboard focus.
 - Safety conventions: the current limit defaults to the supply's maximum and only changes when the operator sets it; voltage increases while live require confirmation; Characterize never switches the output on or changes the voltage; and a single-controller setup must never silently drop a requested channel without logging or showing it in the mode line.
 
