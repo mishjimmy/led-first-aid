@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LED test bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --panel:#26292d; --well:#191b1e; --edge:#383c42; --text:#e7e4dd; --dim:#8b8f96;
+  --amber:#f3b43a; --live:#57c27a; --warn:#e5664f;
+  --r:#ff4a3d; --g:#39d46a; --b:#3f7dff; --w:#f4efe1; --m:#c9c3b6;
+  font-family:"Barlow",system-ui,sans-serif; color:var(--text); background:var(--well);
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--well)}
+.wrap{max-width:1180px;margin:0 auto;padding:18px}
+.cond{font-family:"Barlow Semi Condensed",sans-serif}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:12px 16px;background:var(--panel);border:1px solid var(--edge);border-radius:6px}
+h1{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:22px;margin:0 8px 0 0}
+.chip{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 10px;background:var(--well);border-radius:5px}
+.chip .dot{width:9px;height:9px;border-radius:50%;background:#555}
+.chip.on .dot{background:var(--live);box-shadow:0 0 7px var(--live)}
+.chip .lbl{font-size:14px;color:var(--dim);min-width:92px}
+.chip.on .lbl{color:var(--text)}
+.spacer{flex:1}
+label.chk{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:14px;cursor:pointer}
+button{font:inherit;font-weight:500;font-size:14px;color:var(--text);background:#34383e;border:1px solid #4a4f57;border-radius:4px;padding:7px 12px;cursor:pointer}
+button:hover{background:#3d4249}
+button:focus-visible,input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+.chip button{padding:5px 10px}
+
+.grid{display:grid;grid-template-columns:360px 1fr;gap:16px;margin-top:16px}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:16px}
+.card h2{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:17px;margin:0 0 12px}
+.sub{font-size:13px;color:var(--dim);line-height:1.4;margin:0}
+
+/* PSU */
+.meters{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.meter{background:var(--well);border-radius:4px;padding:10px 10px 8px;text-align:right}
+.meter .val{font-family:"Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums;font-size:34px;font-weight:600;color:var(--amber);line-height:1}
+.meter .unit{font-size:13px;color:var(--dim)}
+.setline{display:flex;justify-content:space-between;font-size:13px;color:var(--dim);margin:10px 2px 14px;font-variant-numeric:tabular-nums}
+.avail{background:var(--well);border-radius:4px;padding:12px}
+.avail .top{display:flex;justify-content:space-between;align-items:baseline}
+.avail .big{font-family:"Barlow Semi Condensed",sans-serif;font-size:26px;font-weight:600;font-variant-numeric:tabular-nums}
+.bar{height:10px;background:#2e3237;border-radius:5px;margin-top:8px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--live);transition:width .3s}
+.bar i.hot{background:var(--warn)}
+.seg{display:flex;border:1px solid #4a4f57;border-radius:4px;overflow:hidden;margin-top:14px}
+.seg button{flex:1;border:0;border-radius:0;border-right:1px solid #4a4f57;background:#2e3237;padding:10px 0;font-size:17px;font-family:"Barlow Semi Condensed",sans-serif;font-weight:600}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--amber);color:#1a1405}
+.outbtn{width:100%;margin-top:12px;padding:14px;font-size:18px;font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;background:#2e3237}
+.outbtn.on{background:var(--live);border-color:var(--live);color:#07190d}
+.psufoot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:13px;color:var(--dim)}
+.psufoot button{padding:4px 10px;font-size:13px}
+
+/* Light */
+.light{display:grid;grid-template-columns:auto 1fr;gap:18px}
+@media (max-width:700px){.light{grid-template-columns:1fr}}
+.bank{display:flex;gap:8px}
+.fader{display:flex;flex-direction:column;align-items:center;gap:8px;width:64px;padding:10px 0 12px;background:var(--well);border-radius:4px}
+.fader .pct{font-family:"Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;color:var(--amber)}
+input[type=range].v{writing-mode:vertical-lr;direction:rtl;height:210px;width:30px;accent-color:var(--c)}
+.fader .name{font-family:"Barlow Semi Condensed",sans-serif;font-weight:600;font-size:16px;color:var(--c)}
+.fader.master{margin-left:6px}
+.fader .use{display:flex;align-items:center;justify-content:center;height:22px}
+.fader .use input{width:18px;height:18px;margin:0;accent-color:var(--c);cursor:pointer}
+.fader.unused .pct,.fader.unused .v,.fader.unused .name{opacity:.3}
+.tools{display:flex;flex-direction:column;gap:14px;min-width:0}
+.pick{display:flex;gap:14px;align-items:center}
+.pick input[type=color]{width:74px;height:74px;border:2px solid var(--edge);border-radius:50%;padding:0;background:none;cursor:pointer}
+.pick input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.pick input[type=color]::-webkit-color-swatch{border:0;border-radius:50%}
+.swatch{width:74px;height:74px;border-radius:50%;border:2px solid var(--edge);background:#000;flex:none}
+.pick .lab{font-size:13px;color:var(--dim);text-align:center;margin-top:4px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.solo button{min-width:52px}
+.pat .seg{margin-top:0}
+.pat .seg button{font-size:15px;padding:9px 4px}
+.speed{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:14px;color:var(--dim)}
+.speed input{flex:1;accent-color:var(--amber)}
+.speed span{min-width:70px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+.modeline{font-size:13px;color:var(--dim)}
+.modeline b{color:var(--text);font-weight:500}
+
+#log{height:150px;overflow:auto;margin:0;padding:8px 10px;background:var(--well);border-radius:4px;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--dim);white-space:pre-wrap}
+#log .ok{color:var(--live)} #log .err{color:var(--warn)} #log .tx{color:var(--text)}
+.banner{margin-top:16px;padding:12px 16px;border-radius:6px;background:#3a2320;border:1px solid var(--warn);display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LED test bench</h1>
+    <div class="chip" id="chipPsu"><span class="dot"></span><span class="lbl">Power supply</span><button id="btnPsu">Connect</button></div>
+    <div class="chip" id="chipA"><span class="dot"></span><span class="lbl">RGB controller</span><button id="btnA">Connect</button></div>
+    <div class="chip" id="chipB"><span class="dot"></span><span class="lbl">White controller</span><button id="btnB">Connect</button></div>
+    <div class="spacer"></div>
+    <label class="chk"><input type="checkbox" id="showAll"> Show all Bluetooth devices</label>
+  </header>
+
+  <div class="banner" id="noBt">Web Bluetooth isn't available here. Open this file in Chrome or Edge on Windows 10 or later, with Bluetooth turned on.</div>
+
+  <div class="grid">
+    <!-- PSU -->
+    <section class="card">
+      <h2>Power supply</h2>
+      <div class="meters">
+        <div class="meter"><div class="val" id="mV">--.--</div><div class="unit">volts</div></div>
+        <div class="meter"><div class="val" id="mA">-.---</div><div class="unit">amps</div></div>
+        <div class="meter"><div class="val" id="mW">--.-</div><div class="unit">watts</div></div>
+      </div>
+      <div class="setline"><span id="setV">Set --.-- V</span><span id="setI">Limit -.--- A</span></div>
+
+      <div class="avail">
+        <div class="top"><span class="sub">Available power</span><span class="big" id="availW">-- W</span></div>
+        <div class="bar"><i id="loadBar"></i></div>
+        <div class="top" style="margin-top:6px"><span class="sub" id="loadTxt">Load --</span><span class="sub" id="headroom"></span></div>
+      </div>
+
+      <div class="seg" id="presets">
+        <button data-v="5" aria-pressed="false">5 V</button>
+        <button data-v="12" aria-pressed="true">12 V</button>
+        <button data-v="24" aria-pressed="false">24 V</button>
+      </div>
+      <button class="outbtn" id="outBtn">Output off</button>
+      <div class="psufoot">
+        <span id="psuMisc">Not connected</span>
+        <button id="releaseBtn" title="Give control back to the supply's touchscreen">Release to front panel</button>
+      </div>
+    </section>
+
+    <!-- Light -->
+    <section class="card">
+      <h2>Light</h2>
+      <div class="light">
+        <div class="bank" id="bank"></div>
+        <div class="tools">
+          <div class="pick">
+            <div><input type="color" id="picker" value="#000000" aria-label="Pick RGB color"><div class="lab">Pick color</div></div>
+            <div><div class="swatch" id="swatch"></div><div class="lab">Output</div></div>
+            <div class="modeline" id="modeLine"></div>
+          </div>
+
+          <div>
+            <p class="sub" style="margin-bottom:8px">Solo a channel at full to read its current draw</p>
+            <div class="row solo">
+              <button data-solo="r">Red</button><button data-solo="g">Green</button>
+              <button data-solo="b">Blue</button><button data-solo="w">White</button>
+              <button id="allFull">All full</button><button id="blackout">Blackout</button>
+            </div>
+          </div>
+
+          <div class="pat">
+            <p class="sub" style="margin-bottom:8px">Test pattern</p>
+            <div class="seg" id="patterns">
+              <button data-p="off" aria-pressed="true">Off</button>
+              <button data-p="rainbow" aria-pressed="false">Rainbow</button>
+              <button data-p="chase" aria-pressed="false">Chase</button>
+              <button data-p="fadechase" aria-pressed="false">Fading chase</button>
+            </div>
+            <div class="speed"><span style="min-width:0;color:var(--dim)">Step time</span><input type="range" id="speed" min="10" max="300" value="80" aria-label="Step time"><span id="speedTxt">0.8 s/step</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <h2>Log</h2>
+    <pre id="log"></pre>
+  </section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const hex = a => Array.from(a, b => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function log(msg, cls = "") {
+  const s = document.createElement("span");
+  s.className = cls;
+  s.textContent = new Date().toLocaleTimeString() + "  " + msg + "\n";
+  $("log").appendChild(s);
+  if ($("log").childNodes.length > 400) $("log").removeChild($("log").firstChild);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function setChip(id, on, label) {
+  $("chip" + id).classList.toggle("on", on);
+  $("btn" + id).textContent = on ? "Disconnect" : "Connect";
+  if (label) $("chip" + id).querySelector(".lbl").title = label;
+}
+
+/* ================= Triones controllers ================= */
+class Triones {
+  constructor(id, role) { Object.assign(this, { id, role, dev: null, ch: null, busy: false, pending: null, last: null }); }
+  get connected() { return !!this.ch; }
+  async connect(showAll) {
+    const SVC = 0xffd5;
+    const opts = showAll
+      ? { acceptAllDevices: true, optionalServices: [SVC] }
+      : { filters: ["Triones", "LEDBLE", "Dream", "BRGlight", "QHM"].map(p => ({ namePrefix: p })), optionalServices: [SVC] };
+    this.dev = await navigator.bluetooth.requestDevice(opts);
+    this.dev.addEventListener("gattserverdisconnected", () => {
+      this.ch = null; this.last = null; setChip(this.id, false);
+      log(this.role + " disconnected."); pushOutput(true);
+    });
+    const server = await this.dev.gatt.connect();
+    this.ch = await (await server.getPrimaryService(SVC)).getCharacteristic(0xffd9);
+    setChip(this.id, true, this.dev.name);
+    log(`${this.role} connected: ${this.dev.name || this.dev.id}`, "ok");
+    this.force([0xcc, 0x23, 0x33]);            // power on
+    await sleep(80);
+    pushOutput(true);
+  }
+  disconnect() { if (this.dev && this.dev.gatt.connected) this.dev.gatt.disconnect(); }
+  // Latest-wins: while a write is in flight, only the newest frame is kept.
+  send(bytes) {
+    if (!this.ch) return;
+    this.pending = bytes;
+    if (!this.busy) this.pump();
+  }
+  force(bytes) { this.last = null; this.send(bytes); }
+  async pump() {
+    this.busy = true;
+    while (this.pending && this.ch) {
+      const b = this.pending; this.pending = null;
+      const key = hex(b);
+      if (key === this.last) continue;
+      try {
+        const d = new Uint8Array(b);
+        if (this.ch.properties.writeWithoutResponse) await this.ch.writeValueWithoutResponse(d);
+        else await this.ch.writeValue(d);
+        this.last = key;
+      } catch (e) { log(`${this.role} write failed: ${e.message}`, "err"); await sleep(120); }
+    }
+    this.busy = false;
+  }
+}
+const ctlA = new Triones("A", "RGB controller");
+const ctlB = new Triones("B", "White controller");
+
+/* ================= Light state ================= */
+const lv = { r: 0, g: 0, b: 0, w: 0, m: 255 };   // manual levels
+let out = { r: 0, g: 0, b: 0, w: 0 };            // what's actually sent (pre-master)
+let pattern = "off", patStart = 0, patTimer = null;
+const used = { r: true, g: true, b: true, w: true };   // channels present on the tape under test
+const eff = k => used[k] ? out[k] : 0;
+
+const chans = [["r", "R", "var(--r)"], ["g", "G", "var(--g)"], ["b", "B", "var(--b)"], ["w", "W", "var(--w)"], ["m", "Master", "var(--m)"]];
+for (const [k, name, c] of chans) {
+  const el = document.createElement("div");
+  el.className = "fader" + (k === "m" ? " master" : "");
+  el.style.setProperty("--c", c);
+  el.innerHTML = `<span class="pct" id="p_${k}">0</span>
+    <input type="range" class="v" id="s_${k}" min="0" max="255" value="${lv[k]}" aria-label="${name} level">
+    <span class="name">${name}</span>
+    <span class="use">${k === "m" ? "" : `<input type="checkbox" id="u_${k}" checked aria-label="Use ${name} channel" title="Channel in use">`}</span>`;
+  $("bank").appendChild(el);
+  if (k !== "m") $("u_" + k).addEventListener("change", e => {
+    used[k] = e.target.checked;
+    el.classList.toggle("unused", !used[k]);
+    document.querySelectorAll(`[data-solo="${k}"]`).forEach(b => b.disabled = !used[k]);
+    render(); pushOutput();
+  });
+  $("s_" + k).addEventListener("input", e => {
+    if (k !== "m") stopPattern();
+    lv[k] = +e.target.value;
+    if (k !== "m") out = { r: lv.r, g: lv.g, b: lv.b, w: lv.w };
+    syncPicker(); render(); pushOutput();
+  });
+}
+
+function render() {
+  for (const k of ["r", "g", "b", "w"]) {
+    $("s_" + k).value = out[k];
+    $("p_" + k).textContent = Math.round(out[k] / 2.55);
+  }
+  $("s_m").value = lv.m; $("p_m").textContent = Math.round(lv.m / 2.55);
+  const m = lv.m / 255, W = eff("w") * m / 255;
+  const mix = x => Math.round(Math.min(255, x * m + (255 - x * m) * W));
+  $("swatch").style.background = `rgb(${mix(eff("r"))},${mix(eff("g"))},${mix(eff("b"))})`;
+}
+function syncPicker() {
+  $("picker").value = "#" + [lv.r, lv.g, lv.b].map(v => v.toString(16).padStart(2, "0")).join("");
+}
+$("picker").addEventListener("input", e => {
+  stopPattern();
+  const h = e.target.value;
+  lv.r = parseInt(h.slice(1, 3), 16); lv.g = parseInt(h.slice(3, 5), 16); lv.b = parseInt(h.slice(5, 7), 16);
+  out = { r: lv.r, g: lv.g, b: lv.b, w: lv.w };
+  render(); pushOutput();
+});
+
+function setManual(r, g, b, w) {
+  stopPattern();
+  Object.assign(lv, { r, g, b, w });
+  out = { r, g, b, w };
+  syncPicker(); render(); pushOutput();
+}
+document.querySelectorAll("[data-solo]").forEach(btn => btn.addEventListener("click", () => {
+  const k = btn.dataset.solo;
+  setManual(k === "r" ? 255 : 0, k === "g" ? 255 : 0, k === "b" ? 255 : 0, k === "w" ? 255 : 0);
+}));
+$("allFull").addEventListener("click", () => setManual(used.r ? 255 : 0, used.g ? 255 : 0, used.b ? 255 : 0, used.w ? 255 : 0));
+$("blackout").addEventListener("click", () => setManual(0, 0, 0, 0));
+
+// Map the four levels onto whatever controllers are connected.
+function pushOutput(forceAll) {
+  const m = lv.m / 255;
+  const r = Math.round(eff("r") * m), g = Math.round(eff("g") * m), b = Math.round(eff("b") * m), w = Math.round(eff("w") * m);
+  const rgbCmd = [0x56, r, g, b, 0, 0xf0, 0xaa];
+  const wCmd = [0x56, 0, 0, 0, w, 0x0f, 0xaa];
+  const send = (c, bytes) => forceAll ? c.force(bytes) : c.send(bytes);
+  let mode;
+  if (ctlA.connected && ctlB.connected) {
+    send(ctlA, rgbCmd); send(ctlB, wCmd);
+    mode = "<b>Dual controller</b>: full RGBW mixing";
+  } else if (ctlA.connected) {
+    if (w === 0) send(ctlA, rgbCmd);
+    else if (r + g + b === 0) send(ctlA, wCmd);
+    else send(ctlA, [0x56, r, g, b, w, 0xff, 0xaa]);
+    mode = "<b>Single controller</b>: RGB and W can't mix; W with RGB tries the FF mix byte";
+  } else if (ctlB.connected) {
+    send(ctlB, wCmd);
+    mode = "<b>White controller only</b>";
+  } else {
+    mode = "No light controllers connected";
+  }
+  $("modeLine").innerHTML = mode;
+}
+
+/* ================= Patterns ================= */
+const ORDER = ["r", "g", "b", "w"];
+const gamma = x => Math.pow(Math.max(0, Math.min(1, x)), 2.2);
+function stepTime() { return +$("speed").value / 100; }
+$("speed").addEventListener("input", () => { $("speedTxt").textContent = stepTime().toFixed(1) + " s/step"; });
+
+document.querySelectorAll("#patterns button").forEach(btn => btn.addEventListener("click", () => startPattern(btn.dataset.p)));
+function markPattern(p) {
+  document.querySelectorAll("#patterns button").forEach(x => x.setAttribute("aria-pressed", x.dataset.p === p));
+}
+function startPattern(p) {
+  if (p === "off") { stopPattern(); out = { r: lv.r, g: lv.g, b: lv.b, w: lv.w }; render(); pushOutput(); return; }
+  pattern = p; phase = 0; lastT = 0; markPattern(p);
+  clearInterval(patTimer);
+  patTimer = setInterval(tick, 40);
+}
+function stopPattern() {
+  if (pattern === "off") return;
+  pattern = "off"; clearInterval(patTimer); patTimer = null; markPattern("off");
+}
+// Phase accumulates so changing the speed mid-run doesn't jump.
+let phase = 0, lastT = 0;
+function tick() {
+  const now = performance.now();
+  if (!lastT || now - lastT > 500) lastT = now;
+  phase += (now - lastT) / 1000 / stepTime();
+  lastT = now;
+  const E = ORDER.filter(k => used[k]), n = E.length;
+  const lv4 = { r: 0, g: 0, b: 0, w: 0 };
+  if (n) {
+    const i = Math.floor(phase) % n, f = phase % 1;
+    const cur = E[i], nxt = E[(i + 1) % n];
+    if (pattern === "rainbow") {
+      if (n === 1) lv4[cur] = gamma(Math.sin(Math.PI * f));
+      else {
+        // Bring the next color up to full while the current one holds, then fade the
+        // current one out: the midpoint is both at full, so mixes like yellow show clearly.
+        const e = (1 - Math.cos(Math.PI * f)) / 2;
+        lv4[nxt] = Math.min(1, 2 * e);
+        lv4[cur] = Math.min(1, 2 * (1 - e));
+      }
+    } else if (pattern === "chase") {
+      lv4[cur] = 1;                                      // hard step
+    } else if (pattern === "fadechase") {
+      lv4[cur] = gamma(Math.sin(Math.PI * f));           // each step fades up and back down
+    }
+  }
+  out = { r: Math.round(lv4.r * 255), g: Math.round(lv4.g * 255), b: Math.round(lv4.b * 255), w: Math.round(lv4.w * 255) };
+  render(); pushOutput();
+}
+
+/* ================= ISDT MP305 power supply ================= */
+// Protocol per pymp305 (community reverse-engineered, not yet hardware-verified).
+const MAX_I = 5.0, MAX_P = 150;
+const U = s => `0000${s}-0000-1000-8000-00805f9b34fb`;
+const P_SVC = U("af00"), P_C1 = U("af01"), P_C2 = U("af02");
+const psu = { dev: null, c1: null, c2: null, st: null, waiters: [], chain: Promise.resolve(), poll: null, targetV: 12, short: 0, rxCount: 0 };
+
+const maxCurrent = v => Math.min(MAX_I, MAX_P / v);
+
+function psuWrite(ch, bytes, withResp) {
+  psu.chain = psu.chain.then(async () => {
+    if (!ch) return;
+    const d = new Uint8Array(bytes);
+    if (withResp || !ch.properties.writeWithoutResponse) await ch.writeValueWithResponse(d);
+    else await ch.writeValueWithoutResponse(d);
+  }).catch(e => log("PSU write failed: " + e.message, "err"));
+  return psu.chain;
+}
+function waitFor(cmd, ms) {
+  return new Promise(res => {
+    const w = { cmd, res };
+    psu.waiters.push(w);
+    setTimeout(() => { psu.waiters = psu.waiters.filter(x => x !== w); res(null); }, ms);
+  });
+}
+
+async function psuConnect(showAll) {
+  const opts = showAll
+    ? { acceptAllDevices: true, optionalServices: [P_SVC] }
+    : { filters: [{ namePrefix: "0000MP305" }, { namePrefix: "MP305" }, { services: [P_SVC] }], optionalServices: [P_SVC] };
+  psu.dev = await navigator.bluetooth.requestDevice(opts);
+  psu.dev.addEventListener("gattserverdisconnected", psuGone);
+  const server = await psu.dev.gatt.connect();
+  const svc = await server.getPrimaryService(P_SVC);
+  psu.c1 = await svc.getCharacteristic(P_C1);
+  psu.c2 = await svc.getCharacteristic(P_C2);
+  for (const c of [psu.c1, psu.c2]) {
+    await c.startNotifications();
+    c.addEventListener("characteristicvaluechanged", e => psuRx(new Uint8Array(e.target.value.buffer)));
+  }
+  setChip("Psu", true, psu.dev.name);
+  log(`Power supply connected: ${psu.dev.name || psu.dev.id}. Binding. Accept the prompt on the supply's screen if one appears.`, "ok");
+
+  // Binding handshake on AF02: [0x18, 16 random bytes, fastBinding, status]
+  const id = crypto.getRandomValues(new Uint8Array(16));
+  await psuWrite(psu.c2, [0x18, ...id, 0, 0], true);
+  const bound = await waitFor(0x19, 15000);
+  log(bound ? "Bind reply received." : "No bind reply (continuing anyway).", bound ? "ok" : "err");
+  await sleep(500);
+  await psuWrite(psu.c2, [0xe0], true);
+  const hw = await waitFor(0xe1, 3000);
+  if (hw) log("Hardware info: " + hex(hw), "ok");
+
+  // 0xBD never replies on this firmware; 0xC2 is the real state poll.
+  psu.poll = setInterval(() => psuWrite(psu.c1, [0x12, 0xc2]), 500);
+  // Ask for remote control (remoteCon=2) so later setpoints can be applied.
+  psuRequestRemote();
+}
+function psuGone() {
+  clearInterval(psu.poll); psu.c1 = psu.c2 = null; psu.st = null; psu.remote = false;
+  setChip("Psu", false); $("psuMisc").textContent = "Not connected";
+  log("Power supply disconnected.");
+  renderPsu();
+}
+
+function psuRx(b) {
+  // Commands go out with group 0x12; the MP305 answers with group 0x31.
+  const grouped = (b[0] === 0x12 || b[0] === 0x31) && b.length >= 2;
+  const cmd = grouped ? b[1] : b[0];
+  psu.waiters.filter(w => w.cmd === cmd).forEach(w => w.res(b));
+  psu.waiters = psu.waiters.filter(w => w.cmd !== cmd);
+  if (cmd === 0xc3) {
+    if (psu.rxCount++ < 2) log("State frame: " + hex(b));
+    parseState(b);
+  } else if (cmd === 0xc9) {
+    const st = b[2];
+    if (st === 2) log("Remote control pending. Accept the prompt on the supply's screen.");
+    else if (st !== 0) log("PSU rejected the command (status " + st + ").", "err");
+  } else if (cmd !== 0x19 && cmd !== 0xe1) {
+    log("PSU RX " + hex(b));
+  }
+}
+
+const u16 = (b, i) => b[i] | (b[i + 1] << 8);
+const u32 = (b, i) => (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24)) >>> 0;
+function parseState(b) {
+  if (b.length < 30) {
+    if (psu.short++ < 3) log(`State frame too short (${b.length} bytes). The BLE MTU may be too small.`, "err");
+    return;
+  }
+  let i = 2;
+  const s = {};
+  s.outState = b[i++]; s.battState = b[i++]; s.battPct = b[i++];
+  s.v = u16(b, i) / 100; i += 2;
+  s.setV = u16(b, i) / 100; i += 2;
+  s.i = u16(b, i) / 1000; i += 2;
+  s.setI = u16(b, i) / 1000; i += 2;
+  s.time = u32(b, i); i += 4;
+  s.wh = u32(b, i) / 1000; i += 4;
+  s.w = u16(b, i) / 100; i += 2;
+  s.currentOver = b[i++]; s.realChange = b[i++]; s.voltageSlow = b[i++];
+  s.output = b[i++]; s.model = b[i++]; i += 2; s.temp = b[i++];
+  psu.st = s; psu.lastState = performance.now();
+  renderPsu();
+}
+
+function renderPsu() {
+  const s = psu.st;
+  $("mV").textContent = s ? s.v.toFixed(2) : "--.--";
+  $("mA").textContent = s ? s.i.toFixed(3) : "-.---";
+  $("mW").textContent = s ? s.w.toFixed(1) : "--.-";
+  $("setV").textContent = s ? `Set ${s.setV.toFixed(2)} V` : "Set --.-- V";
+  $("setI").textContent = s ? `Limit ${s.setI.toFixed(3)} A` : "Limit -.--- A";
+  const v = s ? s.setV || psu.targetV : psu.targetV;
+  const avail = v * (s ? s.setI || maxCurrent(v) : maxCurrent(v));
+  $("availW").textContent = avail.toFixed(0) + " W";
+  const load = s ? s.w / avail : 0;
+  $("loadBar").style.width = Math.min(100, load * 100) + "%";
+  $("loadBar").classList.toggle("hot", load > 0.9);
+  $("loadTxt").textContent = s ? `Load ${Math.round(load * 100)}%` : "Load --";
+  $("headroom").textContent = s ? `${Math.max(0, avail - s.w).toFixed(1)} W headroom` : "";
+  const on = !!(s && s.output);
+  $("outBtn").textContent = on ? "Output on" : "Output off";
+  $("outBtn").classList.toggle("on", on);
+  if (s) {
+    const cc = s.setI > 0 && s.i >= s.setI * 0.98 && on;
+    $("psuMisc").textContent = `${s.temp} °C, battery ${s.battPct}%` + (cc ? ", current limiting" : "");
+  }
+  document.querySelectorAll("#presets button").forEach(x =>
+    x.setAttribute("aria-pressed", Math.abs(+x.dataset.v - (s ? s.setV : psu.targetV)) < 0.05));
+}
+
+function controlFrame(remote, v, on) {
+  const i = maxCurrent(v);
+  const vv = Math.round(v * 100), ii = Math.round(i * 1000);
+  const st = psu.st || {};
+  return [0x12, 0xc8, remote, vv & 0xff, vv >> 8, ii & 0xff, ii >> 8, 3, st.voltageSlow || 0, st.currentOver || 0, on ? 1 : 0, 0, 0];
+}
+// Take control: remoteCon=2 with all other fields zero. Over BLE the MP305 shows an
+// "allow remote control" prompt and only answers 0xC9 status 0 once it's accepted.
+async function psuRequestRemote() {
+  if (psu.requesting) return psu.requesting;
+  psu.requesting = (async () => {
+    log("Requesting remote control. Accept the prompt on the supply's screen.", "tx");
+    const reply = waitFor(0xc9, 45000);
+    await psuWrite(psu.c1, [0x12, 0xc8, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const f = await reply;
+    psu.remote = !!(f && f[2] === 0);
+    log(psu.remote ? "Remote control granted." : "Remote control not granted.", psu.remote ? "ok" : "err");
+    psu.requesting = null;
+    return psu.remote;
+  })();
+  return psu.requesting;
+}
+async function psuControl(v, on) {
+  if (!psu.c1) { log("Power supply not connected.", "err"); return; }
+  if (!psu.remote && !(await psuRequestRemote())) return;
+  const reply = waitFor(0xc9, 3000);
+  log(`PSU set ${v.toFixed(2)} V, ${maxCurrent(v).toFixed(3)} A, output ${on ? "on" : "off"}`, "tx");
+  await psuWrite(psu.c1, controlFrame(1, v, on));
+  const f = await reply;
+  if (f && f[2] === 1) {                      // control dropped: re-acquire once and retry
+    psu.remote = false;
+    if (await psuRequestRemote()) await psuWrite(psu.c1, controlFrame(1, v, on));
+  }
+}
+
+document.querySelectorAll("#presets button").forEach(btn => btn.addEventListener("click", () => {
+  const v = +btn.dataset.v;
+  const on = !!(psu.st && psu.st.output);
+  const cur = psu.st ? psu.st.setV : psu.targetV;
+  if (on && v > cur + 0.05 && !confirm(`Output is live. Raise it from ${cur.toFixed(0)} V to ${v} V?`)) return;
+  psu.targetV = v;
+  psuControl(v, on);
+  renderPsu();
+}));
+$("outBtn").addEventListener("click", () => {
+  const on = !!(psu.st && psu.st.output);
+  const v = psu.st && psu.st.setV ? psu.st.setV : psu.targetV;
+  psuControl(v, !on);
+});
+$("releaseBtn").addEventListener("click", () => {
+  if (!psu.c1) return;
+  log("Releasing control to the front panel.", "tx");
+  psu.remote = false;
+  psuWrite(psu.c1, [0x12, 0xc8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
+/* ================= Connect buttons ================= */
+async function guard(fn, what) {
+  try { await fn(); }
+  catch (e) {
+    log(e.name === "NotFoundError"
+      ? `No ${what} selected. If it isn't listed, tick "Show all Bluetooth devices" and close its phone app.`
+      : `${what} connect failed: ${e.message}`, "err");
+  }
+}
+$("btnPsu").addEventListener("click", () => psu.dev && psu.dev.gatt.connected
+  ? psu.dev.gatt.disconnect() : guard(() => psuConnect($("showAll").checked), "power supply"));
+$("btnA").addEventListener("click", () => ctlA.connected ? ctlA.disconnect() : guard(() => ctlA.connect($("showAll").checked), "RGB controller"));
+$("btnB").addEventListener("click", () => ctlB.connected ? ctlB.disconnect() : guard(() => ctlB.connect($("showAll").checked), "white controller"));
+
+if (!navigator.bluetooth) {
+  $("noBt").style.display = "block";
+  ["btnPsu", "btnA", "btnB"].forEach(id => $(id).disabled = true);
+}
+render(); renderPsu(); pushOutput();
+log("Ready. Close the phone apps first; each device accepts one connection at a time.");
+log("PSU protocol is community reverse-engineered and unverified. Watch the first state frames below.");
+</script>
+</body>
+</html>
